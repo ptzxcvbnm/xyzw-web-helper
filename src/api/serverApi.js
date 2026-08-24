@@ -32,6 +32,9 @@ api.interceptors.response.use(
 export const authApi = {
   register: (username, password) => api.post('/auth/register', { username, password }).then(r => r.data),
   login: (username, password) => api.post('/auth/login', { username, password }).then(r => r.data),
+  getRegistrationRequests: () => api.get('/auth/registration-requests').then(r => r.data),
+  approveRegistrationRequest: (id) => api.post(`/auth/registration-requests/${id}/approve`).then(r => r.data),
+  rejectRegistrationRequest: (id) => api.delete(`/auth/registration-requests/${id}`).then(r => r.data),
   isLoggedIn: () => !!localStorage.getItem('auth_token'),
   saveAuth: (data) => {
     localStorage.setItem('auth_token', data.token);
@@ -96,7 +99,7 @@ export const scheduledTasksApi = {
 };
 
 export const pushLevelApi = {
-  start: (tokenId, maxFail) => api.post('/push-level/start', { tokenId, maxFail }).then(r => r.data),
+  start: (tokenId, maxFail, reconnectMinutes) => api.post('/push-level/start', { tokenId, maxFail, reconnectMinutes }).then(r => r.data),
   stop: (tokenId) => api.post('/push-level/stop', { tokenId }).then(r => r.data),
   status: (tokenId) => api.get(`/push-level/status/${tokenId}`).then(r => r.data),
   statusAll: () => api.get('/push-level/status').then(r => r.data),

@@ -41,6 +41,17 @@
             <span>Token管理</span>
           </router-link>
           <router-link
+            v-if="isAdmin"
+            to="/register"
+            class="nav-item"
+            active-class="active"
+          >
+            <n-icon>
+              <PersonAdd />
+            </n-icon>
+            <span>注册审核</span>
+          </router-link>
+          <router-link
             to="/admin/batch-daily-tasks"
             class="nav-item"
             active-class="active"
@@ -117,6 +128,16 @@
               </n-icon>
             </div>
           </n-dropdown>
+
+          <n-button
+            class="logout-button"
+            type="error"
+            secondary
+            size="small"
+            @click="handleLogout"
+          >
+            退出登录
+          </n-button>
         </div>
       </div>
     </nav>
@@ -155,6 +176,17 @@
             <PersonCircle />
           </n-icon>
           <span>Token管理</span>
+        </router-link>
+        <router-link
+          v-if="isAdmin"
+          to="/register"
+          class="drawer-item"
+          @click="isMobileMenuOpen = false"
+        >
+          <n-icon>
+            <PersonAdd />
+          </n-icon>
+          <span>注册审核</span>
         </router-link>
         <router-link
           to="/admin/daily-tasks"
@@ -232,6 +264,15 @@
           </n-icon>
           <span>个人设置</span>
         </router-link>
+        <n-button
+          class="drawer-logout"
+          type="error"
+          secondary
+          block
+          @click="handleLogout"
+        >
+          退出登录
+        </n-button>
       </div>
     </n-drawer>
     <div class="main">
@@ -246,6 +287,7 @@ import ThemeToggle from "@/components/Common/ThemeToggle.vue";
 import {
   Home,
   PersonCircle,
+  PersonAdd,
   Cube,
   Settings,
   ChevronDown,
@@ -259,8 +301,11 @@ import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { ref, computed } from 'vue'
 import { isNowInLegionWarTime } from '@/utils/clubBattleUtils'
+import { useAuthStore } from '@/stores/auth'
 
 const tokenStore = useTokenStore();
+const authStore = useAuthStore();
+const isAdmin = computed(() => authStore.userInfo?.username === 'admin');
 const selectedToken = computed(() => tokenStore.selectedToken);
 const selectedTokenId = computed(() => tokenStore.selectedTokenId);
 const router = useRouter();
@@ -270,15 +315,22 @@ const isMobileMenuOpen = ref(false);
 
 const userMenuOptions = [
   {
-    label: "清除所有Token并退出",
-    key: "logout",
+    label: "清除所有游戏Token",
+    key: "clearTokens",
   },
 ];
+
+const handleLogout = () => {
+  authStore.logout();
+  isMobileMenuOpen.value = false;
+  message.success("已退出登录");
+  router.replace("/login");
+};
 
 // 方法
 const handleUserAction = async (key) => {
   switch (key) {
-    case "logout":
+    case "clearTokens":
       await tokenStore.clearAllTokens();
       message.success("已清除所有Token");
       router.push("/tokens");
@@ -371,6 +423,10 @@ const handleUserAction = async (key) => {
   gap: var(--spacing-md);
 }
 
+.drawer-logout {
+  margin-top: var(--spacing-md);
+}
+
 .user-info {
   display: flex;
   align-items: center;
@@ -426,6 +482,10 @@ const handleUserAction = async (key) => {
   .nav-user {
     gap: 4px;
     padding: 4px 6px;
+  }
+
+  .logout-button {
+    display: none;
   }
 
   .nav-actions {

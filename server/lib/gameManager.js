@@ -10,7 +10,7 @@ const XOR_B = 797788954;
 const XOR_C = 1513922175;
 
 // ==================== 临时协议抓包（默认关闭，按需用环境变量开启）====================
-// 用法：PROTO_CAPTURE=activity_startactegame,activity_actegamestageclaim pm2 restart xyzw-server --update-env
+// 用法：在 /etc/xyzw/xyzw.env 设置 PROTO_CAPTURE=activity_startactegame,activity_actegamestageclaim 后执行 systemctl restart xyzw
 // 匹配到的命令会把 请求参数 + 完整响应 追加写入 server/data/proto-capture.log（JSON行）。
 // 不设置环境变量时完全不生效，零开销、不影响线上。
 // 默认抓换皮抽奖相关命令（想抓别的就改这个列表；不想抓了把列表清空成 [] 即可）

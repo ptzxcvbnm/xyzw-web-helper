@@ -29,7 +29,7 @@ const my_routes = [
     name: 'Register',
     component: () => import('@/views/Register.vue'),
     meta: {
-      title: '注册',
+      title: '申请注册',
       requiresAuth: false
     }
   },
@@ -204,13 +204,22 @@ router.beforeEach((to, from, next) => {
   document.title = to.meta.title ? `${to.meta.title} - XYZW 游戏管理系统` : 'XYZW 游戏管理系统'
 
   const isLoggedIn = !!localStorage.getItem('auth_token')
+  let currentUser = null
+  try {
+    currentUser = JSON.parse(localStorage.getItem('auth_user'))
+  } catch {}
 
   if (to.meta.requiresAuth && !isLoggedIn) {
     next({ path: '/login', query: { redirect: to.fullPath } })
     return
   }
 
-  if ((to.path === '/login' || to.path === '/register') && isLoggedIn) {
+  if (to.meta.requiresAdmin && currentUser?.username !== 'admin') {
+    next('/admin/dashboard')
+    return
+  }
+
+  if (to.path === '/login' && isLoggedIn) {
     next('/tokens')
     return
   }

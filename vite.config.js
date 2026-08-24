@@ -160,6 +160,30 @@ export default defineConfig(async () => {
           target: "http://localhost:3001",
           changeOrigin: true,
         },
+        "/api/auth": {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+        },
+        "/api/settings": {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+        },
+        "/api/scheduled-tasks": {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+        },
+        "/api/push-level": {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+        },
+        "/api/salt-field": {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+        },
+        "/api/force-online": {
+          target: "http://localhost:3001",
+          changeOrigin: true,
+        },
         // 后端WebSocket代理
         "/ws": {
           target: "ws://localhost:3001",

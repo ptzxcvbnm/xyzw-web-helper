@@ -30,10 +30,7 @@ export const useAuthStore = defineStore("auth", () => {
     try {
       isLoading.value = true;
       const data = await authApi.register(userInfo.username, userInfo.password);
-      token.value = data.token;
-      user.value = { id: data.userId, username: data.username };
-      authApi.saveAuth(data);
-      return { success: true, message: "注册成功" };
+      return { success: true, message: "注册申请已提交", request: data };
     } catch (error) {
       const msg = error.response?.data?.error || "注册失败";
       return { success: false, message: msg };

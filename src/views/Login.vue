@@ -109,7 +109,7 @@
           <div class="register-prompt">
             <span>还没有账户？</span>
             <n-button text type="primary" @click="router.push('/register')">
-              立即注册
+              申请注册
             </n-button>
           </div>
         </div>

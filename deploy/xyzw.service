@@ -1,0 +1,25 @@
+[Unit]
+Description=XYZW Web Helper backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xyzw
+Group=xyzw
+WorkingDirectory=/opt/xyzw-web-helper/server
+EnvironmentFile=/etc/xyzw/xyzw.env
+ExecStart=/usr/local/lib/xyzw-node/node index.js
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+KillSignal=SIGTERM
+LimitNOFILE=65535
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/xyzw
+
+[Install]
+WantedBy=multi-user.target

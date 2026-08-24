@@ -1,6 +1,10 @@
 import crypto from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'xyzw_' + crypto.randomBytes(16).toString('hex');
+const configuredSecret = process.env.JWT_SECRET?.trim();
+if (!configuredSecret && process.env.NODE_ENV === 'production') {
+  throw new Error('JWT_SECRET is required when NODE_ENV=production');
+}
+const JWT_SECRET = configuredSecret || 'xyzw_' + crypto.randomBytes(16).toString('hex');
 const TOKEN_EXPIRE = 7 * 24 * 60 * 60 * 1000;
 
 function base64url(str) {

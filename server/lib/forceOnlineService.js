@@ -20,6 +20,7 @@ export class ForceOnlineService {
     this.reconnecting = new Set();// tokenId -> 正在重连(防并发)
     this.userOf = new Map();      // tokenId -> userId(重连需要)
     this.patrolTimer = null;
+    this.shouldDeferReconnect = null; // 其他任务临时接管重连策略时返回 true
   }
 
   _log(type, message) {
@@ -101,6 +102,7 @@ export class ForceOnlineService {
 
   /** 确保某号在线：不在线就立即重连一次。失败累计到上限则自动关闭。 */
   async ensureOnline(tokenId) {
+    if (typeof this.shouldDeferReconnect === 'function' && this.shouldDeferReconnect(tokenId)) return;
     if (this.reconnecting.has(tokenId)) return;
     if (this.gm.getConnectionStatus(tokenId) === 'connected') return;
     const userId = this.userOf.get(tokenId) || '';
@@ -141,6 +143,7 @@ export class ForceOnlineService {
   /** 被 gameManager 的 onDisconnect 调用：若该号强制在线，立即抢回（秒顶） */
   onDisconnected(tokenId) {
     if (!this._allEnabledSet().has(tokenId)) return;
+    if (typeof this.shouldDeferReconnect === 'function' && this.shouldDeferReconnect(tokenId)) return;
     this._log('warning', `${tokenId} 检测到掉线（可能被顶），立即重连抢回...`);
     this.ensureOnline(tokenId).catch(() => {});
   }

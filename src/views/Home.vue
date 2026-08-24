@@ -27,13 +27,6 @@
               >
                 登录
               </n-button>
-              <n-button
-                type="primary"
-                size="large"
-                @click="router.push('/register')"
-              >
-                注册
-              </n-button>
             </template>
             <template v-else>
               <n-button
@@ -115,15 +108,6 @@
             "
             >登录</n-button
           >
-          <n-button
-            type="primary"
-            block
-            @click="
-              router.push('/register');
-              isMobileMenuOpen = false;
-            "
-            >注册</n-button
-          >
         </div>
       </div>
     </n-drawer>
@@ -146,11 +130,11 @@
                     router.push(
                       authStore.isAuthenticated
                         ? '/admin/dashboard'
-                        : '/register',
+                        : '/login',
                     )
                   "
                 >
-                  {{ authStore.isAuthenticated ? "进入控制台" : "立即开始" }}
+                  {{ authStore.isAuthenticated ? "进入控制台" : "立即登录" }}
                 </n-button>
                 <n-button
                   text

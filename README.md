@@ -10,13 +10,13 @@
 浏览器(Vue3 前端) ──HTTP API + JWT──> Node.js 后端(Express) ──WebSocket──> 游戏服务器
      :3000                                  :3001
      只管 UI 展示                            所有游戏逻辑 + SQLite 存储(按 user_id 隔离)
-                                            pm2 守护 / WebSocket 推送日志
+                                            systemd 守护 / WebSocket 推送日志
 ```
 
 - **前端**：Vue 3 + Vite + Naive UI + Pinia
 - **后端**：Node.js + Express + 原生 WebSocket(ws) + better-sqlite3
-- **认证**：JWT（密码 PBKDF2 哈希存储）
-- **进程管理**：pm2
+- **认证**：JWT（密码 PBKDF2 哈希存储，注册需 admin 审核）
+- **进程管理**：systemd + Nginx
 
 ## 目录结构
 
@@ -45,29 +45,37 @@ pnpm dev
 
 ## 生产部署
 
-前端构建产物是纯静态文件，后端用 pm2 常驻。详见 [`HANDOVER.md`](./HANDOVER.md)。
+前端构建产物是纯静态文件，后端用 systemd 常驻并由 Nginx 反向代理。服务器路径、环境变量和运维命令见 [`deploy/README.md`](./deploy/README.md)。
 
 ```bash
-# 构建前端（内存不足时加 swap，见 HANDOVER.md）
-NODE_OPTIONS="--max-old-space-size=1536" npm run build
+# 构建前端
+pnpm build
 
-# 后端
-cd server && pm2 start index.js --name xyzw-server
-
-# 前端静态服务
-pm2 start serve --name xyzw-web -- -s dist -l 3000
+# 后端依赖
+cd server && npm ci --omit=dev
 ```
 
 ## 环境变量
 
-后端支持以下可选环境变量：
+后端支持以下环境变量：
 
 | 变量 | 说明 | 默认 |
 |------|------|------|
-| `JWT_SECRET` | JWT 签名密钥，**生产环境务必设置** | 启动时随机生成 |
+| `NODE_ENV` | 运行环境；生产使用 `production` | 未设置 |
+| `JWT_SECRET` | JWT 签名密钥；生产环境必须设置 | 开发环境随机生成 |
+| `HOST` | 后端监听地址 | `127.0.0.1` |
 | `PORT` | 后端端口 | 3001 |
+| `DATA_DIR` | SQLite 数据目录 | `server/data` |
+| `DB_PATH` | SQLite 文件路径，优先级高于 `DATA_DIR` | 未设置 |
+| `CORS_ORIGIN` | 允许的前端来源，多个值用逗号分隔 | 未限制 |
 
-> 若不设置 `JWT_SECRET`，每次重启后端会重新生成密钥，导致已登录用户的 token 失效。生产环境请固定设置。
+> `NODE_ENV=production` 时未设置 `JWT_SECRET`，后端会拒绝启动，避免重启后登录状态失效。
+
+## 账户与推关
+
+- 访客可以提交注册申请，但账号只有在 `admin` 审核通过后才会创建。
+- `admin` 登录后可从“注册审核”页面批准或拒绝申请。
+- 推关支持设置掉线后的重连等待分钟数：`0` 表示掉线即停止；大于 `0` 时先倒计时，结束后只尝试重连一次。
 
 ## 安全说明
 

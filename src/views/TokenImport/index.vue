@@ -6,8 +6,17 @@
         <div class="header-content">
           <div class="header-top">
             <img src="/icons/xiaoyugan.png" alt="XYZW" class="brand-logo" />
-            <!-- 主题切换按钮 -->
-            <ThemeToggle />
+            <div class="header-account-actions">
+              <ThemeToggle />
+              <n-button
+                type="error"
+                secondary
+                size="small"
+                @click="handleLogout"
+              >
+                退出登录
+              </n-button>
+            </div>
           </div>
           <h1>游戏Token管理</h1>
         </div>
@@ -618,6 +627,7 @@ import singleBinTokenForm from "./singlebin.vue";
 import WxQrcodeForm from "./wxqrcode.vue";
 
 import { useServerTokenStore as useTokenStore } from '@/stores/serverTokenStore';
+import { useAuthStore } from '@/stores/auth';
 import {
   Add,
   Copy,
@@ -655,7 +665,14 @@ const router = useRouter();
 const message = useMessage();
 const dialog = useDialog();
 const tokenStore = useTokenStore();
+const authStore = useAuthStore();
 const selectedTokenId = computed(() => tokenStore.selectedTokenId);
+
+const handleLogout = () => {
+  authStore.logout();
+  message.success("已退出登录");
+  router.replace("/login");
+};
 
 // 限流等待状态
 const rateLimitWaiting = ref(false);
@@ -1673,9 +1690,15 @@ onUnmounted(() => {
   justify-content: center;
 }
 
-.theme-toggle {
+.header-account-actions {
   position: absolute;
   right: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.theme-toggle {
   background: rgba(255, 255, 255, 0.2);
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -2243,6 +2266,19 @@ onUnmounted(() => {
 @media (max-width: 768px) {
   .container {
     padding: 0 var(--spacing-md);
+  }
+
+  .header-top {
+    justify-content: space-between;
+  }
+
+  .header-account-actions {
+    position: static;
+  }
+
+  .brand-logo {
+    width: 48px;
+    height: 48px;
   }
 
   .tokens-grid {

@@ -21,9 +21,20 @@ import { ForceOnlineService } from './lib/forceOnlineService.js';
 import { Cron } from 'croner';
 
 const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || '127.0.0.1';
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const app = express();
-app.use(cors());
+app.set('trust proxy', 'loopback');
+app.use(cors(allowedOrigins.length > 0 ? {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS origin not allowed'));
+  },
+} : undefined));
 app.use(express.json({ limit: '10mb' }));
 
 const httpServer = createServer(app);
@@ -34,6 +45,8 @@ const gameManager = new GameManager(db, pushService);
 const pushLevelService = new PushLevelService(gameManager, pushService);
 const saltFieldService = new SaltFieldService(gameManager, pushService, db);
 const forceOnlineService = new ForceOnlineService(gameManager, pushService, db);
+// 推关运行期间由推关服务执行用户设定的掉线等待策略，避免强制在线抢先重连。
+forceOnlineService.shouldDeferReconnect = (tokenId) => pushLevelService.isRunning(tokenId);
 // 断线钩子：被顶下线时，强制在线的号立即重连抢回
 gameManager.onDisconnectHook = (tokenId) => forceOnlineService.onDisconnected(tokenId);
 
@@ -74,8 +87,8 @@ async function start() {
     console.error('[强制在线] 巡检启动失败:', e.message);
   }
 
-  httpServer.listen(PORT, () => {
-    console.log(`[server] running on http://localhost:${PORT}`);
+  httpServer.listen(PORT, HOST, () => {
+    console.log(`[server] running on http://${HOST}:${PORT}`);
   });
 }
 

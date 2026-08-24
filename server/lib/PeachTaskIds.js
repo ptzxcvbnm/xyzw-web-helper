@@ -923,7 +923,7 @@ export const PEACH_TASKS = [
   },
   {
     "id": 55,
-    "desc": "累计击杀1名处于"你珍蚌"状态的敌人",
+    "desc": "累计击杀1名处于“你珍蚌”状态的敌人",
     "type": 23,
     "target": 1,
     "title": "你不蚌",
@@ -941,7 +941,7 @@ export const PEACH_TASKS = [
   },
   {
     "id": 56,
-    "desc": "累计击杀3名处于"你珍蚌"状态的敌人",
+    "desc": "累计击杀3名处于“你珍蚌”状态的敌人",
     "type": 23,
     "target": 3,
     "title": "你不蚌",
@@ -959,7 +959,7 @@ export const PEACH_TASKS = [
   },
   {
     "id": 57,
-    "desc": "累计击杀5名处于"你珍蚌"状态的敌人",
+    "desc": "累计击杀5名处于“你珍蚌”状态的敌人",
     "type": 23,
     "target": 5,
     "title": "你不蚌",
@@ -977,7 +977,7 @@ export const PEACH_TASKS = [
   },
   {
     "id": 58,
-    "desc": ""你珍蚌"生效期间连续击杀3名敌人",
+    "desc": "“你珍蚌”生效期间连续击杀3名敌人",
     "type": 24,
     "target": 1,
     "title": "我珍蚌",

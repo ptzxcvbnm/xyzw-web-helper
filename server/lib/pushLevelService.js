@@ -9,7 +9,7 @@ import { gameLogger } from './logger.js';
  *   3. fight_level {} -> { success, nextTime, currLevel }
  *   4. 用 nextTime 作为下一关等待时间，循环
  *
- * 停止条件：连续失败达到阈值 / 掉线无法重连 / 手动停止
+ * 停止条件：连续失败达到阈值 / 掉线延迟重连失败 / 手动停止
  */
 
 function pick(resp, name) {
@@ -50,6 +50,10 @@ export class PushLevelService {
       passed: r.passed,
       failStreak: r.failStreak,
       maxFail: r.maxFail,
+      reconnectMinutes: r.reconnectMinutes,
+      reconnecting: !!r.reconnecting,
+      reconnectState: r.reconnectState || null,
+      reconnectAt: r.reconnectAt ? new Date(r.reconnectAt).toISOString() : null,
       startedAt: r.startedAt,
       lastMsg: r.lastMsg,
       stopReason: r.stopReason || null,
@@ -68,7 +72,8 @@ export class PushLevelService {
       return { ok: false, msg: '该账号已在推关中' };
     }
 
-    const maxFail = Math.max(1, parseInt(options.maxFail) || 20);
+    const maxFail = Math.min(999, Math.max(1, parseInt(options.maxFail) || 20));
+    const reconnectMinutes = Math.min(1440, Math.max(0, parseInt(options.reconnectMinutes) || 0));
 
     // 确保已连接
     let status = this.gm.getConnectionStatus(tokenId);
@@ -91,6 +96,10 @@ export class PushLevelService {
       tokenId,
       userId: userId || '',
       maxFail,
+      reconnectMinutes,
+      reconnecting: false,
+      reconnectState: null,
+      reconnectAt: null,
       failStreak: 0,
       passed: 0,
       currLevel: null,
@@ -100,7 +109,10 @@ export class PushLevelService {
     };
     this.runners.set(tokenId, runner);
 
-    this._log(tokenId, 'info', `开始推关（连续失败${maxFail}次自动停止）`);
+    const disconnectPolicy = reconnectMinutes === 0
+      ? '掉线自动停止'
+      : `掉线后等待${reconnectMinutes}分钟再重连`;
+    this._log(tokenId, 'info', `开始推关（连续失败${maxFail}次自动停止，${disconnectPolicy}）`);
     this._broadcast(tokenId);
 
     // 异步跑循环，不阻塞接口返回
@@ -130,6 +142,9 @@ export class PushLevelService {
     const r = this.runners.get(tokenId);
     if (!r) return;
     r.running = false;
+    r.reconnecting = false;
+    r.reconnectState = null;
+    r.reconnectAt = null;
     r.stopReason = reason;
     r.lastMsg = '已停止: ' + reason;
     this._log(tokenId, 'info', '推关停止: ' + reason);
@@ -151,10 +166,7 @@ export class PushLevelService {
       if (bt != null) waitSec = bt < 0 ? 30 : bt;
     } catch (e) {
       this._log(tokenId, 'warn', '首次calcleveltime失败: ' + e.message);
-      if (!await this._ensureConnected(tokenId)) {
-        this._stopInternal(tokenId, r._kicked ? '账号被顶号，已停止（未抢号）' : '掉线且重连失败');
-        return;
-      }
+      if (!await this._recoverConnectionOrStop(tokenId)) return;
       // 重连成功，重新进循环
       return this._loop(tokenId);
     }
@@ -166,8 +178,9 @@ export class PushLevelService {
       this._broadcast(tokenId);
 
       // 等待（可中断）
-      const ok = await this._interruptibleWait(tokenId, waitSec * 1000);
-      if (!ok || !r.running) return;
+      const waitResult = await this._interruptibleWait(tokenId, waitSec * 1000);
+      if (waitResult === 'stopped' || !r.running) return;
+      if (waitResult === 'reconnected') return this._loop(tokenId);
 
       // 提交过关
       let success, nextTime, currLevel;
@@ -178,10 +191,7 @@ export class PushLevelService {
         currLevel = pick(levelResp, 'currLevel');
       } catch (e) {
         this._log(tokenId, 'warn', 'level失败: ' + e.message);
-        if (!await this._ensureConnected(tokenId)) {
-          this._stopInternal(tokenId, r._kicked ? '账号被顶号，已停止（未抢号）' : '掉线且重连失败');
-          return;
-        }
+        if (!await this._recoverConnectionOrStop(tokenId)) return;
         // 重连成功，重新calc一次再继续
         return this._loop(tokenId);
       }
@@ -209,45 +219,104 @@ export class PushLevelService {
     }
   }
 
-  // 可中断的等待（每500ms检查是否被停止）
+  // 可中断的等待（每500ms检查停止状态和连接状态）
   async _interruptibleWait(tokenId, ms) {
     const r = this.runners.get(tokenId);
     let waited = 0;
     while (waited < ms) {
-      if (!r || !r.running) return false;
+      if (!r || !r.running) return 'stopped';
+      if (this.gm.getConnectionStatus(tokenId) !== 'connected') {
+        const recovered = await this._recoverConnectionOrStop(tokenId);
+        return recovered ? 'reconnected' : 'stopped';
+      }
       const step = Math.min(500, ms - waited);
       await sleep(step);
       waited += step;
     }
-    return true;
+    return 'completed';
   }
 
-  // 确保连接。掉线处理策略：让（不抢号）
-  // 网络抖动 -> 重连1次继续；疑似被顶号（重连后又立刻断 / 短时间内反复掉线）-> 停止不抢
+  async _recoverConnectionOrStop(tokenId) {
+    const r = this.runners.get(tokenId);
+    if (!r || !r.running) return false;
+    if (await this._ensureConnected(tokenId)) return true;
+    if (!r.running) return false;
+
+    const reason = r.reconnectMinutes === 0
+      ? '账号掉线，已按设置自动停止'
+      : `掉线后等待${r.reconnectMinutes}分钟，重连失败`;
+    this._stopInternal(tokenId, reason);
+    return false;
+  }
+
+  // 确保连接：0分钟立即停止；大于0时先倒计时等待，结束后只尝试重连一次。
   async _ensureConnected(tokenId) {
     if (this.gm.getConnectionStatus(tokenId) === 'connected') return true;
     const r = this.runners.get(tokenId);
-    if (!r) return false;
+    if (!r || !r.running) return false;
 
-    const now = Date.now();
-    // 记录掉线时间点
-    r._disconnectTimes = (r._disconnectTimes || []).filter(t => now - t < 60000);
-    r._disconnectTimes.push(now);
-
-    // 1分钟内掉线 >= 2 次，判定为被顶号，停止不抢
-    if (r._disconnectTimes.length >= 2) {
-      this._log(tokenId, 'warn', '短时间内反复掉线，疑似被顶号，停止（不抢号）');
-      r._kicked = true;
+    if (r.reconnectMinutes === 0) {
+      this._log(tokenId, 'warn', '检测到掉线，重连时间为0分钟，自动停止');
       return false;
     }
 
-    // 否则当作网络抖动，重连1次
-    this._log(tokenId, 'warn', '检测到掉线，尝试重连1次...');
+    r.reconnectAt = Date.now() + r.reconnectMinutes * 60 * 1000;
+    r.reconnecting = true;
+    r.reconnectState = 'waiting';
+    this._log(tokenId, 'warn', `检测到掉线，等待${r.reconnectMinutes}分钟后尝试重连`);
+
+    while (r.running && Date.now() < r.reconnectAt) {
+      const remainingSeconds = Math.max(0, Math.ceil((r.reconnectAt - Date.now()) / 1000));
+      const minutes = Math.floor(remainingSeconds / 60);
+      const seconds = String(remainingSeconds % 60).padStart(2, '0');
+      r.lastMsg = `掉线，等待重连（剩余${minutes}:${seconds}）`;
+      this._broadcast(tokenId);
+      await sleep(Math.min(1000, Math.max(0, r.reconnectAt - Date.now())));
+    }
+
+    if (!r.running) return false;
+    r.reconnectState = 'connecting';
+    r.lastMsg = '等待结束，正在尝试重连...';
+    this._log(tokenId, 'info', `已等待${r.reconnectMinutes}分钟，开始尝试重连`);
+    this._broadcast(tokenId);
+
+    const connected = await this._attemptReconnect(tokenId, r);
+    if (connected && r.running && this.gm.getConnectionStatus(tokenId) === 'connected') {
+      r.reconnecting = false;
+      r.reconnectState = null;
+      r.reconnectAt = null;
+      r.lastMsg = '重连成功，恢复推关';
+      this._log(tokenId, 'info', '掉线重连成功，恢复推关');
+      this._broadcast(tokenId);
+      return true;
+    }
+
+    r.reconnecting = false;
+    r.reconnectState = null;
+    r.reconnectAt = null;
+    this._broadcast(tokenId);
+    return false;
+  }
+
+  async _attemptReconnect(tokenId, r) {
     try {
-      await this.gm.connectWithRetry(tokenId, r.userId || '', 1);
-      await sleep(2000);
-      return this.gm.getConnectionStatus(tokenId) === 'connected';
+      this.gm.disconnect(tokenId);
+      await sleep(500);
+      if (!r.running) return false;
+
+      await this.gm.connect(tokenId, r.userId || '');
+      const attemptDeadline = Date.now() + 10000;
+      while (r.running && Date.now() < attemptDeadline) {
+        if (this.gm.getConnectionStatus(tokenId) === 'connected') return true;
+        await sleep(Math.min(500, attemptDeadline - Date.now()));
+      }
+
+      if (r.running && this.gm.getConnectionStatus(tokenId) !== 'connected') {
+        this.gm.disconnect(tokenId);
+      }
+      return false;
     } catch (e) {
+      this._log(tokenId, 'warn', '重连尝试异常: ' + e.message);
       return false;
     }
   }

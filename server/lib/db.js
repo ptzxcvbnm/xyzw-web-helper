@@ -4,12 +4,18 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DB_PATH = path.join(__dirname, '..', 'data', 'xyzw.db');
+const defaultDataDir = path.join(__dirname, '..', 'data');
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : defaultDataDir;
+const DB_PATH = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(dataDir, 'xyzw.db');
 
 import fs from 'fs';
-const dataDir = path.dirname(DB_PATH);
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+const dbDir = path.dirname(DB_PATH);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
 }
 
 const sqlite = new Database(DB_PATH);
@@ -17,6 +23,14 @@ sqlite.pragma('journal_mode = WAL');
 
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    salt TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS registration_requests (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
@@ -93,22 +107,89 @@ try { sqlite.exec('CREATE INDEX IF NOT EXISTS idx_tokens_user ON tokens(user_id)
 try { sqlite.exec('CREATE INDEX IF NOT EXISTS idx_groups_user ON token_groups(user_id)'); } catch {}
 try { sqlite.exec('CREATE INDEX IF NOT EXISTS idx_kv_user ON kv(user_id)'); } catch {}
 try { sqlite.exec('CREATE INDEX IF NOT EXISTS idx_bin_user ON bin_data(user_id)'); } catch {}
+try { sqlite.exec('CREATE INDEX IF NOT EXISTS idx_registration_requests_created ON registration_requests(created_at)'); } catch {}
+
+function createId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+}
+
+function insertUserWithPasswordHash(username, passwordHash, salt) {
+  const id = createId('user');
+  sqlite.prepare('INSERT INTO users (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(id, username, passwordHash, salt, new Date().toISOString());
+  return { id, username };
+}
+
+const approveRegistrationRequest = sqlite.transaction((requestId) => {
+  const request = sqlite.prepare('SELECT * FROM registration_requests WHERE id = ?').get(requestId);
+  if (!request) return null;
+
+  const existing = sqlite.prepare('SELECT id FROM users WHERE lower(username) = lower(?)').get(request.username);
+  if (existing) {
+    sqlite.prepare('DELETE FROM registration_requests WHERE id = ?').run(requestId);
+    const error = new Error('用户名已存在');
+    error.code = 'USERNAME_EXISTS';
+    throw error;
+  }
+
+  const user = insertUserWithPasswordHash(request.username, request.password_hash, request.salt);
+  sqlite.prepare('DELETE FROM registration_requests WHERE id = ?').run(requestId);
+  return user;
+});
 
 export const db = {
   createUser(username, password) {
-    const id = 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     const salt = crypto.randomBytes(16).toString('hex');
     const passwordHash = hashPassword(password, salt);
-    sqlite.prepare('INSERT INTO users (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)').run(id, username, passwordHash, salt, new Date().toISOString());
-    return { id, username };
+    return insertUserWithPasswordHash(username, passwordHash, salt);
   },
 
   getUser(username) {
     return sqlite.prepare('SELECT * FROM users WHERE username = ?').get(username) || null;
   },
 
+  getUserCaseInsensitive(username) {
+    return sqlite.prepare('SELECT * FROM users WHERE lower(username) = lower(?)').get(username) || null;
+  },
+
+  createRegistrationRequest(username, password) {
+    const existing = sqlite.prepare('SELECT id FROM registration_requests WHERE lower(username) = lower(?)').get(username);
+    if (existing) return null;
+
+    const id = createId('registration');
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = hashPassword(password, salt);
+    const createdAt = new Date().toISOString();
+    sqlite.prepare('INSERT INTO registration_requests (id, username, password_hash, salt, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, username, passwordHash, salt, createdAt);
+    return { id, username, createdAt };
+  },
+
+  getRegistrationRequestByUsername(username) {
+    return sqlite.prepare('SELECT id, username, created_at AS createdAt FROM registration_requests WHERE lower(username) = lower(?)').get(username) || null;
+  },
+
+  getRegistrationRequests() {
+    return sqlite.prepare('SELECT id, username, created_at AS createdAt FROM registration_requests ORDER BY created_at ASC').all();
+  },
+
+  approveRegistrationRequest(requestId) {
+    return approveRegistrationRequest(requestId);
+  },
+
+  rejectRegistrationRequest(requestId) {
+    return sqlite.prepare('DELETE FROM registration_requests WHERE id = ?').run(requestId).changes > 0;
+  },
+
   verifyPassword(user, password) {
     return hashPassword(password, user.salt) === user.password_hash;
+  },
+
+  updateUserPassword(username, password) {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const passwordHash = hashPassword(password, salt);
+    const result = sqlite.prepare('UPDATE users SET password_hash = ?, salt = ? WHERE username = ?').run(passwordHash, salt, username);
+    return result.changes > 0;
   },
 
   getAllUsers() {

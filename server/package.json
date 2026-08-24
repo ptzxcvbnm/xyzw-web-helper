@@ -4,12 +4,16 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "set-admin-password": "node scripts/set-admin-password.js"
+  },
+  "engines": {
+    "node": ">=22"
   },
   "dependencies": {
     "express": "^4.21.0",
     "ws": "^8.18.0",
-    "better-sqlite3": "^11.6.0",
+    "better-sqlite3": "^13.0.3",
     "cors": "^2.8.5",
     "crypto-js": "^4.2.0",
     "lz4js": "^0.2.0",

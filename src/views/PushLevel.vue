@@ -10,13 +10,17 @@
       <n-space vertical :size="16">
         <!-- 说明 -->
         <n-alert type="info" :show-icon="true">
-          推关在服务器后台运行，关闭网页不影响。连续失败达到设定次数或掉线会自动停止。
+          推关在服务器后台运行，关闭网页不影响。掉线重连时间为0分钟时自动停止，大于0时先倒计时等待，结束后尝试重连一次。
         </n-alert>
 
         <!-- 全局设置 -->
-        <n-space align="center">
+        <n-space align="center" wrap>
           <span>连续失败停止次数：</span>
-          <n-input-number v-model:value="maxFail" :min="1" :max="999" style="width: 140px;" />
+          <n-input-number v-model:value="maxFail" :min="1" :max="999" :precision="0" style="width: 140px;" />
+          <span>掉线后重连等待：</span>
+          <n-input-number v-model:value="reconnectMinutes" :min="0" :max="1440" :precision="0" style="width: 140px;">
+            <template #suffix>分钟</template>
+          </n-input-number>
           <n-button type="primary" :loading="loadingAll" @click="refreshAll">刷新状态</n-button>
         </n-space>
 
@@ -40,6 +44,7 @@ import { tokenApi, pushLevelApi, ServerPushClient } from '@/api/serverApi';
 
 const message = useMessage();
 const maxFail = ref(20);
+const reconnectMinutes = ref(0);
 const loadingAll = ref(false);
 const tokens = ref([]);
 const statusMap = ref({}); // tokenId -> status
@@ -57,6 +62,9 @@ const rows = computed(() => tokens.value.map(t => {
     passed: st.passed,
     failStreak: st.failStreak,
     maxFail: st.maxFail,
+    reconnectMinutes: st.reconnectMinutes,
+    reconnecting: st.reconnecting,
+    reconnectState: st.reconnectState,
     lastMsg: st.lastMsg,
     stopReason: st.stopReason,
   };
@@ -67,8 +75,13 @@ const columns = [
   {
     title: '状态', key: 'running', width: 90,
     render(row) {
-      return h(NTag, { type: row.running ? 'success' : 'default', size: 'small' },
-        { default: () => row.running ? '推关中' : '停止' });
+      const type = row.reconnecting ? 'warning' : row.running ? 'success' : 'default';
+      const label = row.reconnectState === 'waiting'
+        ? '等待重连'
+        : row.reconnectState === 'connecting'
+          ? '重连中'
+          : row.running ? '推关中' : '停止';
+      return h(NTag, { type, size: 'small' }, { default: () => label });
     }
   },
   { title: '当前关', key: 'currLevel', width: 90, render: r => r.currLevel ?? '-' },
@@ -113,7 +126,7 @@ async function refreshAll() {
 async function start(tokenId) {
   busy.value = { ...busy.value, [tokenId]: true };
   try {
-    const r = await pushLevelApi.start(tokenId, maxFail.value);
+    const r = await pushLevelApi.start(tokenId, maxFail.value, reconnectMinutes.value);
     if (r.ok) message.success(r.msg || '已开始');
     else message.warning(r.msg || '开始失败');
     await refreshOne(tokenId);
