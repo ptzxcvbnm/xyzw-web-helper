@@ -25,13 +25,18 @@
         </n-space>
 
         <!-- 账号列表 -->
-        <n-data-table
-          :columns="columns"
-          :data="rows"
-          :bordered="true"
-          :single-line="false"
-          size="small"
-        />
+        <div class="table-scroll">
+          <n-data-table
+            class="push-level-table"
+            :columns="columns"
+            :data="rows"
+            :scroll-x="980"
+            :bordered="true"
+            :single-line="false"
+            size="small"
+          />
+        </div>
+        <span class="mobile-scroll-hint">可在表格内左右滑动查看全部列</span>
       </n-space>
     </n-card>
   </div>
@@ -90,7 +95,7 @@ const columns = [
     title: '连续失败', key: 'failStreak', width: 90,
     render: r => (r.failStreak != null ? `${r.failStreak}/${r.maxFail ?? maxFail.value}` : '-')
   },
-  { title: '最近信息', key: 'lastMsg', ellipsis: { tooltip: true }, render: r => r.lastMsg || (r.stopReason ? '已停止: ' + r.stopReason : '-') },
+  { title: '最近信息', key: 'lastMsg', width: 360, ellipsis: { tooltip: true }, render: r => r.lastMsg || (r.stopReason ? '已停止: ' + r.stopReason : '-') },
   {
     title: '操作', key: 'actions', width: 120,
     render(row) {
@@ -181,5 +186,36 @@ onUnmounted(() => {
   padding: 16px;
   max-width: 1100px;
   margin: 0 auto;
+  min-width: 0;
+}
+
+.table-scroll {
+  width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.push-level-table {
+  min-width: 980px;
+}
+
+.mobile-scroll-hint {
+  display: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .push-level-page {
+    padding: 8px;
+  }
+
+  .mobile-scroll-hint {
+    display: block;
+  }
 }
 </style>
