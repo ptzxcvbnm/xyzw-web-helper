@@ -172,7 +172,9 @@ export class XyzwWebSocketClient {
     const actualPacket = packet._raw || packet;
     const incomingSeq = typeof actualPacket?.seq === 'number' ? actualPacket.seq
       : typeof packet.seq === 'number' ? packet.seq : undefined;
-    if (typeof incomingSeq === 'number' && incomingSeq >= 0) {
+    // _sys/ack 心跳响应通常带 seq=0，不能把已确认的服务端序号回退。
+    // 游戏原客户端同样只在收到更大的服务端 seq 时推进 ACK。
+    if (typeof incomingSeq === 'number' && incomingSeq > this.ack) {
       this.ack = incomingSeq;
     }
   }

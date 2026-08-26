@@ -34,3 +34,13 @@ test('无服务端序号的消息不会覆盖现有 ACK', () => {
 
   assert.equal(client.ack, 17);
 });
+
+test('心跳或旧消息不会让 ACK 回退', () => {
+  const client = createClient();
+  client.ack = 17;
+
+  client._updateAckFromPacket({ _raw: { seq: 0 } });
+  client._updateAckFromPacket({ _raw: { seq: 12 } });
+
+  assert.equal(client.ack, 17);
+});
