@@ -117,16 +117,13 @@ export class XyzwWebSocketClient {
           packet = data;
         }
 
-        if (packet instanceof Object && packet.rawData !== undefined) {
-          // ProtoMsg
-        } else {
-          const actualPacket = packet._raw || packet;
-          const incomingSeq = typeof actualPacket?.seq === "number" ? actualPacket.seq
-            : typeof packet?.seq === "number" ? packet.seq : undefined;
-          if (typeof incomingSeq === "number" && incomingSeq >= 0) {
-            this.ack = incomingSeq;
-          }
+        // ProtoMsg 把协议头放在 _raw 中、业务数据放在 rawData 中。
+        // ACK 必须对所有消息更新；此前 ProtoMsg 分支直接跳过，导致心跳长期
+        // 携带旧 ACK，长连接会被游戏服务器判定为异常并断开。
+        this._updateAckFromPacket(packet);
 
+        if (!(packet instanceof Object && packet.rawData !== undefined)) {
+          const actualPacket = packet._raw || packet;
           if (actualPacket?.body && this.shouldDecodeBody(actualPacket.body)) {
             try {
               if (this.utils?.bon?.decode) {
@@ -169,6 +166,16 @@ export class XyzwWebSocketClient {
 
   setMessageListener(fn) { this.messageListener = fn; }
   setShowMsg(val) { this.showMsg = !!val; }
+
+  _updateAckFromPacket(packet) {
+    if (!packet || typeof packet !== 'object') return;
+    const actualPacket = packet._raw || packet;
+    const incomingSeq = typeof actualPacket?.seq === 'number' ? actualPacket.seq
+      : typeof packet.seq === 'number' ? packet.seq : undefined;
+    if (typeof incomingSeq === 'number' && incomingSeq >= 0) {
+      this.ack = incomingSeq;
+    }
+  }
 
   shouldDecodeBody(body) {
     if (!body) return false;
