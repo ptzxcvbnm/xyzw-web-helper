@@ -7,7 +7,7 @@ import { gameLogger } from './logger.js';
  *   1. fight_calcleveltime {} -> { battleTime, currLevel }  battleTime是要等的秒数
  *   2. 等待 battleTime 秒
  *   3. fight_level {} -> { success, nextTime, currLevel }
- *   4. 用 nextTime 作为下一关等待时间，循环
+ *   4. 等待 nextTime 后，为下一关重新计算战斗时间并循环
  *
  * 停止条件：连续失败达到阈值 / 掉线延迟重连失败 / 手动停止
  */
@@ -151,27 +151,30 @@ export class PushLevelService {
     this._broadcast(tokenId);
   }
 
-  // 核心循环（优化版：开头calc一次定时间，之后只发level + 用nextTime等待）
+  // 核心循环：每一关都必须先 calc，再提交 level；nextTime 只是关卡间隔。
   async _loop(tokenId) {
     const r = this.runners.get(tokenId);
     if (!r) return;
 
-    // 开头：算第一关要等多久
-    let waitSec = 2;
-    try {
-      const calcResp = await this.gm.sendMessageWithPromise(tokenId, 'fight_calcleveltime', {}, 8000);
-      const bt = pick(calcResp, 'battleTime');
-      const cl = pick(calcResp, 'currLevel');
-      if (cl != null) r.currLevel = cl;
-      if (bt != null) waitSec = bt < 0 ? 30 : bt;
-    } catch (e) {
-      this._log(tokenId, 'warn', '首次calcleveltime失败: ' + e.message);
-      if (!await this._recoverConnectionOrStop(tokenId)) return;
-      // 重连成功，重新进循环
-      return this._loop(tokenId);
-    }
-
     while (r.running) {
+      let waitSec;
+      try {
+        const calcResp = await this.gm.sendMessageWithPromise(tokenId, 'fight_calcleveltime', {}, 8000);
+        const battleTime = pick(calcResp, 'battleTime');
+        const currLevel = pick(calcResp, 'currLevel');
+        if (currLevel != null) r.currLevel = currLevel;
+
+        if (battleTime == null) {
+          this._stopInternal(tokenId, 'battleTime为空');
+          return;
+        }
+        waitSec = battleTime < 0 ? 30 : battleTime;
+      } catch (e) {
+        this._log(tokenId, 'warn', 'calcleveltime失败: ' + e.message);
+        if (!await this._recoverConnectionOrStop(tokenId)) return;
+        continue;
+      }
+
       if (waitSec > 300) waitSec = 300; // 安全上限
 
       r.lastMsg = `第${r.currLevel || '?'}关 战斗中(${waitSec}s)`;
@@ -180,7 +183,7 @@ export class PushLevelService {
       // 等待（可中断）
       const waitResult = await this._interruptibleWait(tokenId, waitSec * 1000);
       if (waitResult === 'stopped' || !r.running) return;
-      if (waitResult === 'reconnected') return this._loop(tokenId);
+      if (waitResult === 'reconnected') continue;
 
       // 提交过关
       let success, nextTime, currLevel;
@@ -192,10 +195,10 @@ export class PushLevelService {
       } catch (e) {
         this._log(tokenId, 'warn', 'level失败: ' + e.message);
         if (!await this._recoverConnectionOrStop(tokenId)) return;
-        // 重连成功，重新calc一次再继续
-        return this._loop(tokenId);
+        continue;
       }
 
+      if (!r.running) return;
       if (currLevel != null) r.currLevel = currLevel;
 
       if (success === true || success === 1) {
@@ -214,8 +217,10 @@ export class PushLevelService {
       }
       this._broadcast(tokenId);
 
-      // 下一关等待时间：用 level 返回的 nextTime
-      waitSec = (typeof nextTime === 'number' && nextTime >= 0) ? nextTime : 2;
+      // nextTime 是进入下一关前的间隔，结束后必须重新 calc。
+      const nextWaitSec = (typeof nextTime === 'number' && nextTime >= 0) ? nextTime : 2;
+      const nextWaitResult = await this._interruptibleWait(tokenId, Math.min(nextWaitSec, 300) * 1000);
+      if (nextWaitResult === 'stopped' || !r.running) return;
     }
   }
 
@@ -266,6 +271,16 @@ export class PushLevelService {
     this._log(tokenId, 'warn', `检测到掉线，等待${r.reconnectMinutes}分钟后尝试重连`);
 
     while (r.running && Date.now() < r.reconnectAt) {
+      if (this.gm.getConnectionStatus(tokenId) === 'connected') {
+        r.reconnecting = false;
+        r.reconnectState = null;
+        r.reconnectAt = null;
+        r.lastMsg = '连接已恢复，继续推关';
+        this._log(tokenId, 'info', '等待期间连接已恢复，继续推关');
+        this._broadcast(tokenId);
+        return true;
+      }
+
       const remainingSeconds = Math.max(0, Math.ceil((r.reconnectAt - Date.now()) / 1000));
       const minutes = Math.floor(remainingSeconds / 60);
       const seconds = String(remainingSeconds % 60).padStart(2, '0');
@@ -275,6 +290,16 @@ export class PushLevelService {
     }
 
     if (!r.running) return false;
+    if (this.gm.getConnectionStatus(tokenId) === 'connected') {
+      r.reconnecting = false;
+      r.reconnectState = null;
+      r.reconnectAt = null;
+      r.lastMsg = '连接已恢复，继续推关';
+      this._log(tokenId, 'info', '等待结束前连接已恢复，继续推关');
+      this._broadcast(tokenId);
+      return true;
+    }
+
     r.reconnectState = 'connecting';
     r.lastMsg = '等待结束，正在尝试重连...';
     this._log(tokenId, 'info', `已等待${r.reconnectMinutes}分钟，开始尝试重连`);

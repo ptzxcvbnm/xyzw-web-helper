@@ -25,7 +25,7 @@
         </n-space>
 
         <!-- 账号列表 -->
-        <div class="table-scroll">
+        <div class="table-frame">
           <n-data-table
             class="push-level-table"
             :columns="columns"
@@ -189,17 +189,22 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-.table-scroll {
+.table-frame {
   width: 100%;
   min-width: 0;
-  overflow-x: auto;
-  touch-action: pan-x pan-y;
-  overscroll-behavior-x: contain;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
 }
 
 .push-level-table {
-  min-width: 980px;
+  width: 100%;
+  min-width: 0;
+}
+
+/* scroll-x 已让 Naive UI 的内部容器负责横向滚动，避免双层滚动区域抢手势。 */
+.push-level-table :deep(.n-data-table-base-table-body > .n-scrollbar-container) {
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .mobile-scroll-hint {
