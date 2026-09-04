@@ -10,7 +10,7 @@
       <n-space vertical :size="16">
         <!-- 说明 -->
         <n-alert type="info" :show-icon="true">
-          推关在服务器后台运行，关闭网页不影响。掉线重连时间为0分钟时自动停止，大于0时先倒计时等待，结束后尝试重连一次。
+          推关在服务器后台运行，关闭网页不影响。模拟加速会提前放弃失败局，只为预测胜局等待正常结算时间；资源版本不匹配时会拒绝启动。
         </n-alert>
 
         <!-- 全局设置 -->
@@ -21,6 +21,8 @@
           <n-input-number v-model:value="reconnectMinutes" :min="0" :max="1440" :precision="0" style="width: 140px;">
             <template #suffix>分钟</template>
           </n-input-number>
+          <span>本地模拟加速：</span>
+          <n-switch v-model:value="accelerated" />
           <n-button type="primary" :loading="loadingAll" @click="refreshAll">刷新状态</n-button>
         </n-space>
 
@@ -30,7 +32,7 @@
             class="push-level-table"
             :columns="columns"
             :data="rows"
-            :scroll-x="980"
+            :scroll-x="1060"
             :bordered="true"
             :single-line="false"
             size="small"
@@ -50,6 +52,7 @@ import { tokenApi, pushLevelApi, ServerPushClient } from '@/api/serverApi';
 const message = useMessage();
 const maxFail = ref(20);
 const reconnectMinutes = ref(0);
+const accelerated = ref(false);
 const loadingAll = ref(false);
 const tokens = ref([]);
 const statusMap = ref({}); // tokenId -> status
@@ -70,6 +73,8 @@ const rows = computed(() => tokens.value.map(t => {
     reconnectMinutes: st.reconnectMinutes,
     reconnecting: st.reconnecting,
     reconnectState: st.reconnectState,
+    accelerated: st.accelerated,
+    simulationAttempts: st.simulationAttempts,
     lastMsg: st.lastMsg,
     stopReason: st.stopReason,
   };
@@ -85,12 +90,13 @@ const columns = [
         ? '等待重连'
         : row.reconnectState === 'connecting'
           ? '重连中'
-          : row.running ? '推关中' : '停止';
+          : row.running ? (row.accelerated ? '模拟推关' : '推关中') : '停止';
       return h(NTag, { type, size: 'small' }, { default: () => label });
     }
   },
   { title: '当前关', key: 'currLevel', width: 90, render: r => r.currLevel ?? '-' },
   { title: '已过', key: 'passed', width: 70, render: r => r.passed ?? 0 },
+  { title: '模拟局数', key: 'simulationAttempts', width: 80, render: r => r.simulationAttempts ?? 0 },
   {
     title: '连续失败', key: 'failStreak', width: 90,
     render: r => (r.failStreak != null ? `${r.failStreak}/${r.maxFail ?? maxFail.value}` : '-')
@@ -131,7 +137,7 @@ async function refreshAll() {
 async function start(tokenId) {
   busy.value = { ...busy.value, [tokenId]: true };
   try {
-    const r = await pushLevelApi.start(tokenId, maxFail.value, reconnectMinutes.value);
+    const r = await pushLevelApi.start(tokenId, maxFail.value, reconnectMinutes.value, accelerated.value);
     if (r.ok) message.success(r.msg || '已开始');
     else message.warning(r.msg || '开始失败');
     await refreshOne(tokenId);

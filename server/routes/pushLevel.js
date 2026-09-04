@@ -4,12 +4,12 @@ export function pushLevelRoutes(pushLevelService) {
   const r = Router();
 
   // 开始推关
-  // body: { tokenId, maxFail, reconnectMinutes }
+  // body: { tokenId, maxFail, reconnectMinutes, accelerated }
   r.post('/start', async (req, res) => {
-    const { tokenId, maxFail, reconnectMinutes } = req.body;
+    const { tokenId, maxFail, reconnectMinutes, accelerated } = req.body;
     if (!tokenId) return res.status(400).json({ error: 'tokenId required' });
     try {
-      const result = await pushLevelService.start(tokenId, req.userId, { maxFail, reconnectMinutes });
+      const result = await pushLevelService.start(tokenId, req.userId, { maxFail, reconnectMinutes, accelerated: accelerated === true });
       res.json(result);
     } catch (e) {
       res.status(500).json({ ok: false, msg: e.message });

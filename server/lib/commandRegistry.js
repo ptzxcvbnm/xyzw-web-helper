@@ -21,6 +21,7 @@ export function registerDefaultCommands(reg) {
     .register("rank_getserverrank")
     .register("arena_startarea")
     .register("fight_startlevel")
+    .register("fight_getlevelbattledata")
     .register("fight_calcleveltime")
     .register("fight_level")
     .register("arena_getareatarget", { refresh: false })

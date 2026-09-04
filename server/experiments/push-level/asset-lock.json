@@ -1,0 +1,82 @@
+{
+  "capturedAt": "2026-09-04T11:10:55.585Z",
+  "observedPageAssetVersions": {
+    "launcher": "9706c",
+    "TEST_REMOTE_MODULE": "dfe5b",
+    "game": "3cf1d",
+    "config": "79c4111dc4"
+  },
+  "battleVersion": "7f91491b47",
+  "configCommit": "79c4111dc4",
+  "engineVersion": "2.4.9",
+  "codeVersion": "2.44.2",
+  "publicBundleKey": "0Aed5E79bbEa69f8",
+  "files": [
+    {
+      "path": "launcher.js",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/launcher/index.9706c.jsc",
+      "encoding": "xxtea",
+      "sha256": "6222cd418cbcb6cb0a105d8acdd3b0834e08fa287cef05d4ea4e4d2c30dffd4e"
+    },
+    {
+      "path": "TEST_REMOTE_MODULE.js",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/TEST_REMOTE_MODULE/index.dfe5b.jsc",
+      "encoding": "xxtea",
+      "sha256": "c9344e6442fef3c4efba47a53f4c788c865c4ef24828e40ea24a574136177a2a"
+    },
+    {
+      "path": "game.js",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/game/index.3cf1d.jsc",
+      "encoding": "xxtea",
+      "sha256": "f9461106aa3d3bac1c92daff15bf143826171a74351a229af6de185a23582680"
+    },
+    {
+      "path": "config/tower.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/0b/0b2a3ce8-0ff6-470b-b302-8e5090e34974.ab104.json",
+      "encoding": "json",
+      "sha256": "4d8585bdf1c7701d766e53916c101b263103ac0068beff5587777c5da8948bc6"
+    },
+    {
+      "path": "config/level.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/10/10a8fc6f-2d4b-43b0-b1c8-1df9edcd9362.737b2.json",
+      "encoding": "json",
+      "sha256": "22438bd5473a10190a0411bae69e9fc7a2afddbcc74da3c2832e1a070443f579"
+    },
+    {
+      "path": "config/season_level.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/5f/5f68a54e-cfa0-4a95-8b02-c798b1b66bcc.fbea4.json",
+      "encoding": "json",
+      "sha256": "ccee35278e101c4585794f9e9ebfb8363b811ead5634fd181286a0af820471e5"
+    },
+    {
+      "path": "config/season_tower.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/60/60d1eaed-3871-4e47-ba41-c49f5a9a83c2.7bdda.json",
+      "encoding": "json",
+      "sha256": "1614541ad353abe6bf48ed7b775569078b494a1768eaa338d7fdfc5019a5bdb5"
+    },
+    {
+      "path": "config/config_ap.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/6b/6bf4a136-bc54-41e6-a14f-ebe26beb6637.8ece5.json",
+      "encoding": "json",
+      "sha256": "38ab7545c85d1954bb5da998ac2f41f3d6da593ab2ef5c470c3a1c48fc6d733a"
+    },
+    {
+      "path": "config/config.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/7c/7cb951cc-bb1a-4cff-8d57-c26146b9b999.d9d64.json",
+      "encoding": "json",
+      "sha256": "47ca380a9b8192aed08bbc90b9c56520c43269162200533e9bee2bcd9a0020a9"
+    },
+    {
+      "path": "config/language.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/d9/d98e9279-59a1-4154-8848-9d62f89581b2.424e2.json",
+      "encoding": "json",
+      "sha256": "4443d43e6db1c73f8b3037cbcc07f365ab2edcaa8e095a0a2074e362d98bbb83"
+    },
+    {
+      "path": "config/levelcoef.json",
+      "url": "https://xxz-xyzw-res.hortorgames.com/remote/config/import/e4/e4aa662d-7777-4e4a-a3c3-37f79a497f8a.a9d51.json",
+      "encoding": "json",
+      "sha256": "f814527da3b2ea8c37f6c4e8c0bfcd725d5bb49db1f3040405a9b140a064c041"
+    }
+  ]
+}

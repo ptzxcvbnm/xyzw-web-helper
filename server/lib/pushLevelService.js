@@ -1,13 +1,18 @@
 import { gameLogger } from './logger.js';
 
 /**
- * 纯协议后端推关服务
+ * 后端推关服务
  *
- * 原理（已实测验证）：
+ * 普通模式（已实测验证）：
  *   1. fight_calcleveltime {} -> { battleTime, currLevel }  battleTime是要等的秒数
  *   2. 等待 battleTime 秒
  *   3. fight_level {} -> { success, nextTime, currLevel }
  *   4. 等待 nextTime 后，为下一关重新计算战斗时间并循环
+ *
+ * 模拟加速模式：
+ *   1. fight_getlevelbattledata 获取服务器签发的当前关卡战斗
+ *   2. 在 Node 中用版本锁定的官方战斗核心提前计算结果
+ *   3. 预测失败立即重新取局；预测胜利保留同一局并等待正常时长后结算
  *
  * 停止条件：连续失败达到阈值 / 掉线延迟重连失败 / 手动停止
  */
@@ -27,9 +32,10 @@ function pick(resp, name) {
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
 export class PushLevelService {
-  constructor(gameManager, pushService) {
+  constructor(gameManager, pushService, battleSimulator = null) {
     this.gm = gameManager;
     this.push = pushService;
+    this.battleSimulator = battleSimulator;
     // tokenId -> 运行状态
     this.runners = new Map();
   }
@@ -54,6 +60,8 @@ export class PushLevelService {
       reconnecting: !!r.reconnecting,
       reconnectState: r.reconnectState || null,
       reconnectAt: r.reconnectAt ? new Date(r.reconnectAt).toISOString() : null,
+      accelerated: !!r.accelerated,
+      simulationAttempts: r.simulationAttempts || 0,
       startedAt: r.startedAt,
       lastMsg: r.lastMsg,
       stopReason: r.stopReason || null,
@@ -74,6 +82,16 @@ export class PushLevelService {
 
     const maxFail = Math.min(999, Math.max(1, parseInt(options.maxFail) || 20));
     const reconnectMinutes = Math.min(1440, Math.max(0, parseInt(options.reconnectMinutes) || 0));
+    const accelerated = options.accelerated === true;
+
+    if (accelerated) {
+      if (!this.battleSimulator) return { ok: false, msg: '模拟加速器未配置' };
+      try {
+        await this.battleSimulator.ready();
+      } catch (error) {
+        return { ok: false, msg: '模拟加速器不可用: ' + error.message };
+      }
+    }
 
     // 确保已连接
     let status = this.gm.getConnectionStatus(tokenId);
@@ -100,6 +118,8 @@ export class PushLevelService {
       reconnecting: false,
       reconnectState: null,
       reconnectAt: null,
+      accelerated,
+      simulationAttempts: 0,
       failStreak: 0,
       passed: 0,
       currLevel: null,
@@ -112,7 +132,8 @@ export class PushLevelService {
     const disconnectPolicy = reconnectMinutes === 0
       ? '掉线自动停止'
       : `掉线后等待${reconnectMinutes}分钟再重连`;
-    this._log(tokenId, 'info', `开始推关（连续失败${maxFail}次自动停止，${disconnectPolicy}）`);
+    const modeLabel = accelerated ? '本地模拟加速' : '服务器计时';
+    this._log(tokenId, 'info', `开始推关（${modeLabel}，连续失败${maxFail}次自动停止，${disconnectPolicy}）`);
     this._broadcast(tokenId);
 
     // 异步跑循环，不阻塞接口返回
@@ -151,9 +172,16 @@ export class PushLevelService {
     this._broadcast(tokenId);
   }
 
-  // 核心循环：每一关都必须先 calc，再提交 level；nextTime 只是关卡间隔。
+  // 根据启动选项选择旧的服务器计时流程或本地模拟加速流程。
   async _loop(tokenId) {
     const r = this.runners.get(tokenId);
+    if (!r) return;
+    if (r.accelerated) return this._acceleratedLoop(tokenId, r);
+    return this._legacyLoop(tokenId, r);
+  }
+
+  // 旧流程：每一关都必须先 calc，再提交 level；nextTime 只是关卡间隔。
+  async _legacyLoop(tokenId, r = this.runners.get(tokenId)) {
     if (!r) return;
 
     while (r.running) {
@@ -222,6 +250,108 @@ export class PushLevelService {
       const nextWaitResult = await this._interruptibleWait(tokenId, Math.min(nextWaitSec, 300) * 1000);
       if (nextWaitResult === 'stopped' || !r.running) return;
     }
+  }
+
+  // 加速流程：服务器取一局，本地提前判负；只有预测胜利才等待正常时长并提交同一局。
+  async _acceleratedLoop(tokenId, r = this.runners.get(tokenId)) {
+    if (!r || !this.battleSimulator) return;
+
+    while (this._isCurrentRunner(tokenId, r)) {
+      let battleData;
+      let issuedAt;
+      try {
+        issuedAt = Date.now();
+        const response = await this.gm.sendMessageWithPromise(tokenId, 'fight_getlevelbattledata', {}, 8000);
+        if (!this._isCurrentRunner(tokenId, r)) return;
+        battleData = pick(response, 'battleData');
+        const currLevel = pick(response, 'currLevel');
+        if (currLevel != null) r.currLevel = currLevel;
+        if (!battleData) {
+          this._stopInternal(tokenId, '服务器未返回主线战斗数据');
+          return;
+        }
+      } catch (error) {
+        this._log(tokenId, 'warn', '获取主线战斗数据失败: ' + error.message);
+        if (!await this._recoverConnectionOrStop(tokenId)) return;
+        await this._interruptibleWait(tokenId, 500);
+        continue;
+      }
+
+      let simulation;
+      try {
+        simulation = await this.battleSimulator.simulate(battleData, {
+          autoAttack: false,
+          autoAttackInterval: 0.16,
+        });
+      } catch (error) {
+        this._stopInternal(tokenId, '本地战斗模拟失败: ' + error.message);
+        return;
+      }
+      if (!this._isCurrentRunner(tokenId, r)) return;
+
+      r.simulationAttempts++;
+      r.currLevel = simulation.levelId ?? r.currLevel;
+      if (!simulation.result?.isWin) {
+        r.failStreak++;
+        r.lastMsg = `❌ 预测失败 第${r.currLevel || '?'}关，立即换局 (${r.failStreak}/${r.maxFail})`;
+        this._log(tokenId, 'info', r.lastMsg);
+        this._broadcast(tokenId);
+        if (r.failStreak >= r.maxFail) {
+          this._stopInternal(tokenId, `连续预测失败${r.maxFail}次`);
+          return;
+        }
+        const retryWait = await this._interruptibleWait(tokenId, 300);
+        if (retryWait === 'stopped') return;
+        continue;
+      }
+
+      const elapsedMs = Date.now() - issuedAt;
+      const waitMs = Math.max(0, simulation.realDurationMs + simulation.settlementBufferMs - elapsedMs);
+      r.lastMsg = `✅ 预测胜利 第${r.currLevel || '?'}关，保留本局等待${Math.ceil(waitMs / 1000)}秒结算`;
+      this._log(tokenId, 'info', r.lastMsg);
+      this._broadcast(tokenId);
+      const waitResult = await this._interruptibleWait(tokenId, waitMs);
+      if (waitResult === 'stopped' || !this._isCurrentRunner(tokenId, r)) return;
+      if (waitResult === 'reconnected') continue;
+
+      let success, nextTime, currLevel;
+      try {
+        const levelResp = await this.gm.sendMessageWithPromise(tokenId, 'fight_level', {}, 8000);
+        if (!this._isCurrentRunner(tokenId, r)) return;
+        success = pick(levelResp, 'success');
+        nextTime = pick(levelResp, 'nextTime');
+        currLevel = pick(levelResp, 'currLevel');
+      } catch (error) {
+        this._log(tokenId, 'warn', '胜局结算失败: ' + error.message);
+        if (!await this._recoverConnectionOrStop(tokenId)) return;
+        continue;
+      }
+
+      if (currLevel != null) r.currLevel = currLevel;
+      if (success === true || success === 1) {
+        r.passed++;
+        r.failStreak = 0;
+        r.lastMsg = `✅ 加速过关 -> 第${currLevel}关 (累计${r.passed}，模拟${r.simulationAttempts}局)`;
+        this._log(tokenId, 'info', r.lastMsg);
+      } else {
+        r.failStreak++;
+        r.lastMsg = `❌ 预测胜局未通过 第${r.currLevel || '?'}关 (连续${r.failStreak}/${r.maxFail})`;
+        this._log(tokenId, 'warn', r.lastMsg);
+        if (r.failStreak >= r.maxFail) {
+          this._stopInternal(tokenId, `连续失败${r.maxFail}次`);
+          return;
+        }
+      }
+      this._broadcast(tokenId);
+
+      const nextWaitSec = (typeof nextTime === 'number' && nextTime >= 0) ? nextTime : 2;
+      const nextWaitResult = await this._interruptibleWait(tokenId, Math.min(nextWaitSec, 300) * 1000);
+      if (nextWaitResult === 'stopped' || !this._isCurrentRunner(tokenId, r)) return;
+    }
+  }
+
+  _isCurrentRunner(tokenId, runner) {
+    return !!runner?.running && this.runners.get(tokenId) === runner;
   }
 
   // 可中断的等待（每500ms检查停止状态和连接状态）

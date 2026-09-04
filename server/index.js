@@ -6,6 +6,7 @@ import { db } from './lib/db.js';
 import { GameManager } from './lib/gameManager.js';
 import { PushService } from './lib/pushService.js';
 import { PushLevelService } from './lib/pushLevelService.js';
+import { PushLevelBattleSimulator } from './lib/pushLevelBattleSimulator.js';
 import { authMiddleware } from './lib/auth.js';
 import { authRoutes } from './routes/auth.js';
 import { tokenRoutes } from './routes/token.js';
@@ -42,7 +43,8 @@ const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 const pushService = new PushService(wss);
 const gameManager = new GameManager(db, pushService);
-const pushLevelService = new PushLevelService(gameManager, pushService);
+const pushLevelBattleSimulator = new PushLevelBattleSimulator();
+const pushLevelService = new PushLevelService(gameManager, pushService, pushLevelBattleSimulator);
 const saltFieldService = new SaltFieldService(gameManager, pushService, db);
 const forceOnlineService = new ForceOnlineService(gameManager, pushService, db);
 // 推关运行期间由推关服务执行用户设定的掉线等待策略，避免强制在线抢先重连。

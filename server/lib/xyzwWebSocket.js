@@ -361,6 +361,7 @@ export class XyzwWebSocketClient {
     const respCmdKey = typeof cmd === "string" ? cmd.toLowerCase() : cmd;
 
     const responseToCommandMap = {
+      fight_getlevelbattledataresp: "fight_getlevelbattledata",
       fight_startpvpresp: "fight_startpvp",
       activity_getresp: "activity_get",
       role_getroleinforesp: "role_getroleinfo",

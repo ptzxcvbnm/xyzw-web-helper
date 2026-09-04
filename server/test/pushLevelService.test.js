@@ -77,3 +77,98 @@ test('重连倒计时期间连接自行恢复时立即继续', async () => {
   assert.equal(runner.reconnectState, null);
   assert.equal(runner.reconnectAt, null);
 });
+
+test('模拟加速会跳过预测失败，只为预测胜局提交 level', async () => {
+  const commands = [];
+  const simulations = [
+    { levelId: 100, realDurationMs: 0, settlementBufferMs: 0, result: { isWin: false } },
+    { levelId: 100, realDurationMs: 0, settlementBufferMs: 0, result: { isWin: true } },
+  ];
+  const gm = {
+    getConnectionStatus: () => 'connected',
+    async sendMessageWithPromise(_tokenId, command) {
+      commands.push(command);
+      if (command === 'fight_getlevelbattledata') return { battleData: {}, currLevel: 100 };
+      return { success: true, nextTime: 1, currLevel: 101 };
+    },
+  };
+  const simulator = {
+    async simulate() { return simulations.shift(); },
+  };
+  const service = new PushLevelService(gm, createPushStub(), simulator);
+  const runner = {
+    running: true,
+    accelerated: true,
+    tokenId,
+    userId: '',
+    maxFail: 20,
+    reconnectMinutes: 0,
+    failStreak: 0,
+    simulationAttempts: 0,
+    passed: 0,
+    currLevel: null,
+  };
+  service.runners.set(tokenId, runner);
+  service._interruptibleWait = async (_tokenId, ms) => {
+    if (ms === 1000) {
+      service.stop(tokenId);
+      return 'stopped';
+    }
+    return 'completed';
+  };
+
+  await service._acceleratedLoop(tokenId, runner);
+
+  assert.deepEqual(commands, [
+    'fight_getlevelbattledata',
+    'fight_getlevelbattledata',
+    'fight_level',
+  ]);
+  assert.equal(runner.simulationAttempts, 2);
+  assert.equal(runner.passed, 1);
+  assert.equal(runner.failStreak, 0);
+  assert.equal(runner.currLevel, 101);
+});
+
+test('停止后不会提交尚在计算的预测胜局', async () => {
+  const commands = [];
+  let releaseSimulation;
+  let simulationStarted;
+  const started = new Promise(resolve => { simulationStarted = resolve; });
+  const gm = {
+    getConnectionStatus: () => 'connected',
+    async sendMessageWithPromise(_tokenId, command) {
+      commands.push(command);
+      return { battleData: {}, currLevel: 100 };
+    },
+  };
+  const simulator = {
+    simulate() {
+      simulationStarted();
+      return new Promise(resolve => { releaseSimulation = resolve; });
+    },
+  };
+  const service = new PushLevelService(gm, createPushStub(), simulator);
+  const runner = {
+    running: true,
+    accelerated: true,
+    tokenId,
+    userId: '',
+    maxFail: 20,
+    reconnectMinutes: 0,
+    failStreak: 0,
+    simulationAttempts: 0,
+    passed: 0,
+    currLevel: null,
+  };
+  service.runners.set(tokenId, runner);
+
+  const loop = service._acceleratedLoop(tokenId, runner);
+  await started;
+  service.stop(tokenId);
+  releaseSimulation({ levelId: 100, realDurationMs: 0, settlementBufferMs: 0, result: { isWin: true } });
+  await loop;
+
+  assert.deepEqual(commands, ['fight_getlevelbattledata']);
+  assert.equal(runner.simulationAttempts, 0);
+});
