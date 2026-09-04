@@ -1,5 +1,4 @@
 import vm from 'node:vm';
-import ts from 'typescript';
 import { readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { resolve, sep } from 'node:path';
@@ -13,6 +12,29 @@ const configuredAssetDirectory = process.env.XYZW_BATTLE_ASSETS
 export const assetDirectory = configuredAssetDirectory
   ? pathToFileURL(resolve(configuredAssetDirectory) + sep)
   : new URL('../../../tmp/xki-analysis/', import.meta.url);
+
+function extractBundleRegistration(text, bundle) {
+  const assignments = [...text.matchAll(/window(?:\.__require|\[[^\]\r\n]{1,100}\])=function/g)];
+  const separator = text.lastIndexOf('},{},[');
+  const invocationEnd = text.lastIndexOf(']);');
+  if (assignments.length !== 1 || separator < 0 || invocationEnd < separator) {
+    throw new Error(`Unexpected module bundle wrapper in ${bundle}`);
+  }
+  const assignment = assignments[0];
+  const functionStart = assignment.index + assignment[0].lastIndexOf('function');
+  const argumentsStart = text.indexOf('}({', functionStart);
+  if (argumentsStart < 0 || argumentsStart >= separator) {
+    throw new Error(`Could not locate module bundle arguments in ${bundle}`);
+  }
+  const modules = text.slice(argumentsStart + 2, separator + 1);
+  const entries = text.slice(separator + 5, invocationEnd + 1);
+  return {
+    registration: text.slice(0, functionStart)
+      + `__register(${modules}, ${JSON.stringify(bundle)})`
+      + text.slice(invocationEnd + 2),
+    entries,
+  };
+}
 
 export async function createOfflineRuntime(directory = assetDirectory) {
   async function readAsset(path) {
@@ -46,6 +68,7 @@ export async function createOfflineRuntime(directory = assetDirectory) {
   }
   const context = vm.createContext({ console, TextDecoder, TextEncoder });
   context.__register = (modules, bundle) => {
+    inventories[bundle] = Object.keys(modules);
     for (const [id, [factory, deps]] of Object.entries(modules)) {
       const key = `${bundle}:${id}`;
       factories.set(key, {factory, deps, bundle});
@@ -69,21 +92,10 @@ export async function createOfflineRuntime(directory = assetDirectory) {
   const startupEntries = {};
   for (const bundle of ['launcher', 'TEST_REMOTE_MODULE', 'game']) {
     const text = await readAsset(`${bundle}.js`);
-    const file = ts.createSourceFile(`${bundle}.js`, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS);
-    const bundles = [];
-    function visit(node) {
-      if (ts.isCallExpression(node) && node.arguments.length === 3 && ts.isObjectLiteralExpression(node.arguments[0]) && node.arguments[0].properties.length > 50 && ts.isArrayLiteralExpression(node.arguments[2])) bundles.push(node);
-      ts.forEachChild(node, visit);
-    }
-    visit(file);
-    if (bundles.length !== 1) throw new Error(`Expected one module bundle in ${bundle}, got ${bundles.length}`);
-    const call = bundles[0];
-    const modules = bundles[0].arguments[0].properties.map(p => p.name?.getText(file));
-    inventories[bundle] = modules;
+    const extracted = extractBundleRegistration(text, bundle);
     // Only register factories. Never run launcher/UI/network startup entrypoints.
-    const registration = text.slice(0, call.getStart(file)) + `__register(${call.arguments[0].getText(file)}, ${JSON.stringify(bundle)})` + text.slice(call.end);
-    vm.runInContext(registration, context, {filename: `${bundle}.js`, timeout: 10000});
-    if (bundle === 'TEST_REMOTE_MODULE') startupEntries[bundle] = vm.runInContext(call.arguments[2].getText(file), context, {timeout:1000});
+    vm.runInContext(extracted.registration, context, {filename: `${bundle}.js`, timeout: 10000});
+    if (bundle === 'TEST_REMOTE_MODULE') startupEntries[bundle] = vm.runInContext(extracted.entries, context, {timeout:1000});
   }
   await writeFile(new URL('module-inventory.json', directory), JSON.stringify(inventories, null, 2));
   const runtime = { context, loaded: () => [...cache.keys()], run(code, timeout = 20000) { return vm.runInContext(code, context, { timeout, filename:'offline-probe.js' }); } };
