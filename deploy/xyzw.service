@@ -14,6 +14,9 @@ Restart=always
 RestartSec=3
 TimeoutStopSec=20
 KillSignal=SIGTERM
+# Keep SSH and Nginx responsive if a battle simulation consumes a full CPU core.
+Nice=10
+CPUQuota=80%
 LimitNOFILE=65535
 NoNewPrivileges=true
 PrivateTmp=true
