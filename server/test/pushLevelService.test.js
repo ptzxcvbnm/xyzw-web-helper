@@ -89,7 +89,7 @@ test('模拟加速会跳过预测失败，只为预测胜局提交 level', async
     async sendMessageWithPromise(_tokenId, command) {
       commands.push(command);
       if (command === 'fight_getlevelbattledata') return { battleData: {}, currLevel: 100 };
-      return { success: true, nextTime: 1, currLevel: 101 };
+      return { success: true, nextTime: 180, currLevel: 101 };
     },
   };
   const simulator = {
@@ -109,8 +109,10 @@ test('模拟加速会跳过预测失败，只为预测胜局提交 level', async
     currLevel: null,
   };
   service.runners.set(tokenId, runner);
+  const waits = [];
   service._interruptibleWait = async (_tokenId, ms) => {
-    if (ms === 1000) {
+    waits.push(ms);
+    if (ms === 300 && simulations.length === 0) {
       service.stop(tokenId);
       return 'stopped';
     }
@@ -128,6 +130,7 @@ test('模拟加速会跳过预测失败，只为预测胜局提交 level', async
   assert.equal(runner.passed, 1);
   assert.equal(runner.failStreak, 0);
   assert.equal(runner.currLevel, 101);
+  assert.deepEqual(waits, [300, 0, 300]);
 });
 
 test('停止后不会提交尚在计算的预测胜局', async () => {

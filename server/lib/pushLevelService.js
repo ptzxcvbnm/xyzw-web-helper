@@ -314,12 +314,11 @@ export class PushLevelService {
       if (waitResult === 'stopped' || !this._isCurrentRunner(tokenId, r)) return;
       if (waitResult === 'reconnected') continue;
 
-      let success, nextTime, currLevel;
+      let success, currLevel;
       try {
         const levelResp = await this.gm.sendMessageWithPromise(tokenId, 'fight_level', {}, 8000);
         if (!this._isCurrentRunner(tokenId, r)) return;
         success = pick(levelResp, 'success');
-        nextTime = pick(levelResp, 'nextTime');
         currLevel = pick(levelResp, 'currLevel');
       } catch (error) {
         this._log(tokenId, 'warn', '胜局结算失败: ' + error.message);
@@ -344,8 +343,9 @@ export class PushLevelService {
       }
       this._broadcast(tokenId);
 
-      const nextWaitSec = (typeof nextTime === 'number' && nextTime >= 0) ? nextTime : 2;
-      const nextWaitResult = await this._interruptibleWait(tokenId, Math.min(nextWaitSec, 300) * 1000);
+      // 加速模式会自行获取并模拟下一关；fight_level 的 nextTime 已包含下一局战斗时间，
+      // 再等待它会和下一次模拟结算等待重复。只留一个很短的状态同步间隔。
+      const nextWaitResult = await this._interruptibleWait(tokenId, 300);
       if (nextWaitResult === 'stopped' || !this._isCurrentRunner(tokenId, r)) return;
     }
   }
