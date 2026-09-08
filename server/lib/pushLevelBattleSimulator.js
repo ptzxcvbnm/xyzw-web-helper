@@ -5,7 +5,7 @@ export class PushLevelBattleSimulator {
     timeScale = 100,
     stepMs = 20,
     settlementBufferMs = 5000,
-    simulationTimeoutMs = 30000,
+    simulationTimeoutMs = 120000,
     requestTimeoutGraceMs = 5000,
     readyTimeoutMs = 60000,
     workerFactory = null,
