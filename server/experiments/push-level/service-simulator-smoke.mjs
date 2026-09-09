@@ -55,10 +55,13 @@ try {
 }
 assert.deepEqual(result.result, sample.browserSimulation.result);
 assert.deepEqual(bonResult.result, sample.browserSimulation.result);
+assert.equal(result.bossName, '关平');
+assert.equal(bonResult.bossName, '关平');
 assert.ok(eventLoopTicks >= 5, `main event loop was blocked; timer ticked only ${eventLoopTicks} times`);
 console.log(JSON.stringify({
   levelId: result.levelId,
   randomSeed: result.randomSeed,
+  bossName: result.bossName,
   updates: result.updates,
   realDurationMs: result.realDurationMs,
   bonObjectShape: 'pass',

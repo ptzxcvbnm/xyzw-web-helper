@@ -32,7 +32,7 @@
             class="push-level-table"
             :columns="columns"
             :data="rows"
-            :scroll-x="1060"
+            :scroll-x="1180"
             :bordered="true"
             :single-line="false"
             size="small"
@@ -67,6 +67,7 @@ const rows = computed(() => tokens.value.map(t => {
     name: t.name,
     running: st.running,
     currLevel: st.currLevel,
+    bossName: st.bossName,
     passed: st.passed,
     failStreak: st.failStreak,
     maxFail: st.maxFail,
@@ -95,6 +96,7 @@ const columns = [
     }
   },
   { title: '当前关', key: 'currLevel', width: 90, render: r => r.currLevel ?? '-' },
+  { title: '当前BOSS', key: 'bossName', width: 120, ellipsis: { tooltip: true }, render: r => r.bossName || '-' },
   { title: '已过', key: 'passed', width: 70, render: r => r.passed ?? 0 },
   { title: '模拟局数', key: 'simulationAttempts', width: 80, render: r => r.simulationAttempts ?? 0 },
   {

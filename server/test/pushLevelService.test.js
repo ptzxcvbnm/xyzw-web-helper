@@ -81,8 +81,8 @@ test('重连倒计时期间连接自行恢复时立即继续', async () => {
 test('模拟加速会跳过预测失败，只为预测胜局提交 level', async () => {
   const commands = [];
   const simulations = [
-    { levelId: 100, realDurationMs: 0, settlementBufferMs: 0, result: { isWin: false } },
-    { levelId: 100, realDurationMs: 0, settlementBufferMs: 0, result: { isWin: true } },
+    { levelId: 100, bossName: '测试BOSS', realDurationMs: 0, settlementBufferMs: 0, result: { isWin: false } },
+    { levelId: 100, bossName: '测试BOSS', realDurationMs: 0, settlementBufferMs: 0, result: { isWin: true } },
   ];
   const gm = {
     getConnectionStatus: () => 'connected',
@@ -130,6 +130,7 @@ test('模拟加速会跳过预测失败，只为预测胜局提交 level', async
   assert.equal(runner.passed, 1);
   assert.equal(runner.failStreak, 0);
   assert.equal(runner.currLevel, 101);
+  assert.equal(service.getStatus(tokenId).bossName, '测试BOSS');
   assert.deepEqual(waits, [300, 0, 300]);
 });
 

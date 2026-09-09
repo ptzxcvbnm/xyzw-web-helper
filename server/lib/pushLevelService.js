@@ -53,6 +53,7 @@ export class PushLevelService {
     return {
       running: r.running,
       currLevel: r.currLevel,
+      bossName: r.bossName || null,
       passed: r.passed,
       failStreak: r.failStreak,
       maxFail: r.maxFail,
@@ -123,6 +124,7 @@ export class PushLevelService {
       failStreak: 0,
       passed: 0,
       currLevel: null,
+      bossName: null,
       startedAt: new Date().toISOString(),
       lastMsg: '已启动',
       stopReason: null,
@@ -291,6 +293,7 @@ export class PushLevelService {
 
       r.simulationAttempts++;
       r.currLevel = simulation.levelId ?? r.currLevel;
+      r.bossName = simulation.bossName || null;
       if (!simulation.result?.isWin) {
         r.failStreak++;
         r.lastMsg = `❌ 预测失败 第${r.currLevel || '?'}关，立即换局 (${r.failStreak}/${r.maxFail})`;

@@ -74,6 +74,48 @@ function simulate(battleData, extend) {
           actor.enchantMap = toMap(actor.enchantMap);
         }
       }
+      function firstLine(value) {
+        return String(value == null ? '' : value).trim().split(/\\r?\\n/).map(item => item.trim()).find(Boolean) || '';
+      }
+      function resolveDisplayName(value, configs) {
+        const text = firstLine(value);
+        if (!text) return '';
+        const language = configs.LanguageConf && typeof configs.LanguageConf.getByKey === 'function'
+          ? configs.LanguageConf.getByKey(text)
+          : null;
+        const translated = language && typeof language === 'object'
+          ? firstLine(language.chinese || language.text || language.title || language.name || language.value)
+          : firstLine(language);
+        if (translated) return translated;
+        if (/^\\d+$|Conf_|_name_|_desc_|^ACT_|^skin_|^hero_/i.test(text)) return '';
+        return text;
+      }
+      function getLevelBossName(levelId) {
+        try {
+          const configs = __require('Configs');
+          const level = configs.LevelConf && typeof configs.LevelConf.getById === 'function'
+            ? configs.LevelConf.getById(levelId)
+            : null;
+          if (!level || !Array.isArray(level.monsters)) return '未知';
+          for (const round of level.monsters) {
+            if (!Array.isArray(round)) continue;
+            for (const entry of round) {
+              const monsterId = Array.isArray(entry) ? Number(entry[0] || 0) : Number(entry && entry.monsterId || 0);
+              const monsterType = Array.isArray(entry) ? Number(entry[1] || 0) : Number(entry && entry.monsterType || 0);
+              if (monsterType < 26 || monsterType > 28) continue;
+              const monster = configs.MonsterConf && typeof configs.MonsterConf.getById === 'function'
+                ? configs.MonsterConf.getById(monsterId)
+                : null;
+              for (const field of ['monsterName', 'displayName', 'showName', 'bossName', 'name', 'title', 'chinese', 'text']) {
+                const name = resolveDisplayName(monster && monster[field], configs);
+                if (name) return name;
+              }
+              return monsterId > 0 ? 'Boss ' + monsterId : '未知';
+            }
+          }
+        } catch {}
+        return '未知';
+      }
       const data = __require('data-index');
       const rawInput = revive(payload.battleData);
       const input = new data.BattleData();
@@ -123,8 +165,10 @@ function simulate(battleData, extend) {
           updates++;
         }
         if (!battleResult) throw new Error('Battle simulation exceeded the step limit');
+        const levelId = input.options.get('levelId');
         return {
-          levelId: input.options.get('levelId'),
+          levelId,
+          bossName: getLevelBossName(levelId),
           randomSeed: input.randomSeed,
           timeScale,
           stepMs,
