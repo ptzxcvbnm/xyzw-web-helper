@@ -8,17 +8,20 @@ export class PushLevelBattleSimulator {
     simulationTimeoutMs = 120000,
     requestTimeoutGraceMs = 5000,
     readyTimeoutMs = 60000,
+    maxSimulationsPerWorker = 40,
     workerFactory = null,
   } = {}) {
     this.settings = { timeScale, stepMs, settlementBufferMs, simulationTimeoutMs };
     this.requestTimeoutGraceMs = requestTimeoutGraceMs;
     this.readyTimeoutMs = readyTimeoutMs;
+    this.maxSimulationsPerWorker = maxSimulationsPerWorker;
     this.workerFactory = workerFactory;
     this.worker = null;
     this.readyPromise = null;
     this.nextRequestId = 1;
     this.pending = new Map();
     this.queue = Promise.resolve();
+    this.completedSimulations = 0;
   }
 
   async ready() {
@@ -37,11 +40,16 @@ export class PushLevelBattleSimulator {
     const task = async () => {
       await this.ready();
       try {
-        return await this._request(
+        const result = await this._request(
           'simulate',
           { battleData, extend },
           this.settings.simulationTimeoutMs + this.requestTimeoutGraceMs,
         );
+        this.completedSimulations++;
+        if (this.completedSimulations >= this.maxSimulationsPerWorker) {
+          this._stopWorker();
+        }
+        return result;
       } catch (error) {
         this._stopWorker(error);
         throw error;
@@ -62,7 +70,7 @@ export class PushLevelBattleSimulator {
       ? this.workerFactory()
       : new Worker(new URL('./pushLevelBattleWorker.js', import.meta.url), {
           resourceLimits: {
-            maxOldGenerationSizeMb: 384,
+            maxOldGenerationSizeMb: 512,
             maxYoungGenerationSizeMb: 32,
             codeRangeSizeMb: 64,
             stackSizeMb: 4,
@@ -84,6 +92,7 @@ export class PushLevelBattleSimulator {
       }
     });
     this.worker = worker;
+    this.completedSimulations = 0;
   }
 
   _request(type, payload = {}, timeoutMs = 0) {
@@ -113,6 +122,7 @@ export class PushLevelBattleSimulator {
     const worker = this.worker;
     this.worker = null;
     this.readyPromise = null;
+    this.completedSimulations = 0;
     for (const pending of this.pending.values()) {
       clearTimeout(pending.timer);
       pending.reject(error);

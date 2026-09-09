@@ -54,3 +54,24 @@ test('模拟硬超时会销毁工作线程，下一次请求会自动重建', as
   assert.equal(workers.length, 2);
   simulator.close();
 });
+
+test('达到单个工作线程的模拟次数上限后会主动重建', async () => {
+  const workers = [];
+  const simulator = new PushLevelBattleSimulator({
+    maxSimulationsPerWorker: 2,
+    workerFactory() {
+      const worker = new FakeWorker();
+      workers.push(worker);
+      return worker;
+    },
+  });
+
+  await simulator.simulate({});
+  await simulator.simulate({});
+  assert.equal(workers[0].terminated, true);
+  assert.equal(simulator.worker, null);
+
+  await simulator.simulate({});
+  assert.equal(workers.length, 2);
+  simulator.close();
+});
