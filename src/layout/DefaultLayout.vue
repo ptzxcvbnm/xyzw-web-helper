@@ -14,6 +14,10 @@
         </div>
 
         <div class="nav-menu">
+          <router-link to="/admin/game-login" class="nav-item" active-class="active">
+            <n-icon><GameController /></n-icon>
+            <span>游戏登录</span>
+          </router-link>
           <router-link
             to="/admin/dashboard"
             class="nav-item"
@@ -147,6 +151,10 @@
       style="width: 260px"
     >
       <div class="drawer-menu">
+        <router-link to="/admin/game-login" class="drawer-item" @click="isMobileMenuOpen = false">
+          <n-icon><GameController /></n-icon>
+          <span>游戏登录</span>
+        </router-link>
         <router-link
           to="/admin/dashboard"
           class="drawer-item"
@@ -286,6 +294,7 @@ import { useServerTokenStore as useTokenStore } from '@/stores/serverTokenStore'
 import ThemeToggle from "@/components/Common/ThemeToggle.vue";
 import {
   Home,
+  GameController,
   PersonCircle,
   PersonAdd,
   Cube,

@@ -57,6 +57,12 @@ const my_routes = [
     component: () => import('@/layout/DefaultLayout.vue'),
     children: [
       {
+        path: 'game-login',
+        name: 'GameLogin',
+        component: () => import('@/components/GameLogin.vue'),
+        meta: { title: '游戏登录', requiresToken: false, requiresAuth: true }
+      },
+      {
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('@/views/Dashboard.vue'),
