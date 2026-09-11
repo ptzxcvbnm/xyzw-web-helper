@@ -8,14 +8,19 @@ Entry: `/admin/game-login` in the authenticated Vue application. Static runtime:
 
 The standalone document loads Cocos 2.4.9 and current remote game bundles.
 The parent page owns exactly one iframe and destroys it on close or navigation.
-Parent messages contain only startup state; no assistant credentials are passed.
-The game uses the `slot-1` browser storage namespace and the reference BIN login
-bridge. Selecting an imported account reloads the game to authenticate. With no
-account selected, authentication waits and opens the BIN panel.
+The outer page lists the current user's imported assistant accounts. It obtains
+the selected account's BIN through the existing authenticated token API, then
+sends it to that iframe using an exact-origin postMessage handshake. The child
+checks both origin and sender and accepts one account per document. Credentials
+stay in memory and are never put in URLs or saved by the login bridge. The child
+replies only with status events. Restart retrieves the selected account again.
+Accounts without a stored BIN must be reimported through Token management.
+The game uses the `slot-1` storage namespace for its own runtime data.
 
 Local adaptations:
 - Removed quarantine scripts, script-manager startup and third-party HTTP origin.
-- Hidden QR login because this integration provides BIN login only.
+- Removed the in-game account popup, separate account list and import controls.
+- Reused assistant BIN/QR imports instead of maintaining a second account store.
 - Retained reference audio muting and platform compatibility shims.
 - Kept all resource paths relative to this directory.
 
@@ -25,6 +30,7 @@ the configured Hortor CDN. The game HTML scopes its Cocos CSP exception to itsel
 
 Manual login is independent of assistant task management. Stop automation for the
 same role before logging in; closing the game does not resume backend tasks.
-Local validation on 2026-09-10: production build, runtime JavaScript syntax,
-remote resource loading, and user-provided BIN login reaching `GameRunning`.
-No resource-spending game actions were performed. Production is not deployed.
+The initial standalone bridge was validated with a user-provided BIN on 2026-09-10.
+For the external bridge, run `node --test test/game-launcher-login.test.mjs` and
+`npm run build`. The tests cover delayed credentials, origin/sender validation,
+duplicate handshakes, invalid credentials and authentication rejection.
