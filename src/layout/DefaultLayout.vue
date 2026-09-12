@@ -14,10 +14,6 @@
         </div>
 
         <div class="nav-menu">
-          <router-link to="/admin/game-login" class="nav-item" active-class="active">
-            <n-icon><GameController /></n-icon>
-            <span>游戏登录</span>
-          </router-link>
           <router-link
             to="/admin/dashboard"
             class="nav-item"
@@ -95,6 +91,10 @@
             </n-icon>
             <span>盐场创地</span>
           </router-link>
+          <router-link to="/admin/game-login" class="nav-item" active-class="active">
+            <n-icon><GameController /></n-icon>
+            <span>游戏登录</span>
+          </router-link>
           <router-link
             to="/admin/message-test"
             class="nav-item"
@@ -151,10 +151,6 @@
       style="width: 260px"
     >
       <div class="drawer-menu">
-        <router-link to="/admin/game-login" class="drawer-item" @click="isMobileMenuOpen = false">
-          <n-icon><GameController /></n-icon>
-          <span>游戏登录</span>
-        </router-link>
         <router-link
           to="/admin/dashboard"
           class="drawer-item"
@@ -245,6 +241,14 @@
             <Layers />
           </n-icon>
           <span>盐场创地</span>
+        </router-link>
+        <router-link
+          to="/admin/game-login"
+          class="drawer-item"
+          @click="isMobileMenuOpen = false"
+        >
+          <n-icon><GameController /></n-icon>
+          <span>游戏登录</span>
         </router-link>
         <router-link
           to="/admin/message-test"

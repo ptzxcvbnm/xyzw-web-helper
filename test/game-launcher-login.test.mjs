@@ -4,15 +4,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const source = readFileSync(new URL('../public/game-launcher/src/external-account-login.js', import.meta.url), 'utf8');
-function setup(response = { code: 0 }) {
+function setup(response = { code: 0 }, { serviceReady = true } = {}) {
   const messages = [], requests = [];
   let receive;
   const service = { async authUser(request) { requests.push(request); return response; } };
+  let currentService = serviceReady ? service : null;
   const parent = { postMessage(message, origin) { messages.push({ ...message, origin }); } };
   const window = {
     parent, location: { origin: 'https://helper.test' },
+    setTimeout,
     addEventListener(name, listener) { assert.equal(name, 'message'); receive = listener; },
-    __require(name) { assert.equal(name, 'data-index'); return { LoginService: service }; },
+    __require(name) { assert.equal(name, 'data-index'); return { LoginService: currentService }; },
   };
   const context = vm.createContext({ window, ArrayBuffer, Uint8Array, TextDecoder, Promise, setTimeout });
   vm.runInContext(source, context);
@@ -20,7 +22,10 @@ function setup(response = { code: 0 }) {
   const send = (payload, origin = window.location.origin, sender = parent) => receive({
     origin, source: sender, data: { type: 'xyzw-game-account', bin: new TextEncoder().encode(JSON.stringify(payload)).buffer },
   });
-  return { window, requests, messages, send, service };
+  return {
+    window, requests, messages, send, service,
+    makeServiceReady() { currentService = service; },
+  };
 }
 const account = { info: { uid: 'test-only' }, platform: 'hortor', platformExt: 'mix', serverId: 123 };
 
@@ -66,4 +71,15 @@ test('game rejection is reported as failure', async () => {
   await app.service.authUser({});
   assert.ok(app.messages.some(message => message.event === 'account-login-failed'));
   assert.ok(!app.messages.some(message => message.event === 'account-login-success'));
+});
+
+test('hooks the authentication service when the game exposes it after startup', async () => {
+  const app = setup({ code: 0 }, { serviceReady: false });
+  app.send(account);
+  app.makeServiceReady();
+  await new Promise(resolve => setTimeout(resolve, 150));
+  await app.service.authUser({ scene: 0 });
+  assert.equal(app.requests.length, 1);
+  assert.equal(app.requests[0].info, JSON.stringify(account.info));
+  assert.ok(app.messages.some(message => message.event === 'account-login-success'));
 });

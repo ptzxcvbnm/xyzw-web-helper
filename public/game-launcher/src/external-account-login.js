@@ -8,6 +8,7 @@
   const slot = 1
   let credential = null
   let accepted = false
+  let hookRetryTimer = 0
   let resolveCredential
   let rejectCredential
   const ready = new Promise((resolve, reject) => {
@@ -256,6 +257,17 @@
     service.authUser.__externalAccountLogin = true
     return true
   }
+
+  function keepInstallingHooks() {
+    if (installHooks() || hookRetryTimer) return
+    hookRetryTimer = global.setTimeout(function retryInstallHooks() {
+      hookRetryTimer = 0
+      if (!installHooks()) {
+        hookRetryTimer = global.setTimeout(retryInstallHooks, 100)
+      }
+    }, 100)
+  }
+
   global.addEventListener('message', event => {
     if (global.parent === global || event.source !== global.parent || event.origin !== parentOrigin) return
     if (event.data?.type !== 'xyzw-game-account' || accepted) return
@@ -265,6 +277,7 @@
       return
     }
     accepted = true
+    keepInstallingHooks()
     decodeBin(new Uint8Array(bytes)).then(payload => {
       credential = normalizeCredential(payload)
       resolveCredential()
@@ -274,6 +287,6 @@
     })
   })
   global.AuditedAccountLogin = Object.freeze({ installHooks })
+  keepInstallingHooks()
   post('account-bridge-ready')
 })(window)
-
