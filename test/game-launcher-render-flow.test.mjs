@@ -21,6 +21,9 @@ function setup() {
   const window = {
     cc: {
       RenderFlow,
+      dynamicAtlasManager: {
+        enabled: true,
+      },
       assetManager: {
         cacheManager: {},
         loadAny() {},
@@ -40,6 +43,11 @@ function setup() {
   window.installAuditedCocosGuards()
   return { window, renderPrototype, warnings }
 }
+
+test('disables the dynamic atlas before remote scenes can pack persistent UI sprites', () => {
+  const { window } = setup()
+  assert.equal(window.cc.dynamicAtlasManager.enabled, false)
+})
 
 test('updates ready render data, clears the flag and continues the flow', () => {
   const { renderPrototype } = setup()

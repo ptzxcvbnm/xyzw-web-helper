@@ -254,6 +254,17 @@
       console.log('[audit] installed memory-only Web cacheManager')
     }
 
+    // Cocos 2.4's dynamic atlas resets packed textures during scene changes,
+    // but the recovered game's persistent FairyGUI sprites are not all marked
+    // dirty afterwards. Their materials keep pointing at the destroyed atlas
+    // until an input event happens to rebuild that individual sprite. Keep Web
+    // sprites on their original textures so scene switching cannot invalidate
+    // whole UI batches (background, top bar and bottom navigation).
+    if (global.cc.dynamicAtlasManager) {
+      global.cc.dynamicAtlasManager.enabled = false
+      console.log('[audit] disabled Cocos dynamic atlas for stable scene switching')
+    }
+
     ;['loadAny', 'loadBundle'].forEach(function (methodName) {
       var original = global.cc.assetManager[methodName]
       if (typeof original !== 'function') return
