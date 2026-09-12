@@ -22,32 +22,40 @@
     </n-alert>
     <p class="game-status" role="status">{{ status }}</p>
     <div ref="stage" class="game-stage">
-      <iframe v-if="running" :key="generation" ref="frame" :src="gameUrl" title="咸鱼之王游戏窗口"
-        allow="fullscreen; clipboard-write" referrerpolicy="no-referrer" @load="sendAccount" @error="fail" />
+      <div v-if="running" class="game-viewport" :style="gameViewportStyle">
+        <iframe :key="generation" ref="frame" :src="gameUrl" :width="GAME_WIDTH" :height="GAME_HEIGHT"
+          title="咸鱼之王游戏窗口" allow="fullscreen; clipboard-write" referrerpolicy="no-referrer"
+          @load="sendAccount" @error="fail" />
+      </div>
       <div v-else class="game-empty"><strong>咸鱼之王</strong><p>在上方选择账号后登录</p></div>
     </div>
   </section>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { NAlert, NButton, NSelect } from 'naive-ui';
 import { tokenApi } from '@/api/serverApi';
 
+const GAME_WIDTH = 720;
+const GAME_HEIGHT = 1280;
 const running = ref(false);
 const generation = ref(0);
 const frame = ref(null);
 const stage = ref(null);
+const gameScale = ref(1);
 const status = ref('尚未启动');
 const accounts = ref([]);
 const selectedId = ref(null);
 const loading = ref(false);
 const refreshing = ref(false);
 const accountOptions = computed(() => accounts.value.map(account => ({ value: account.id, label: account.server ? `${account.name} · ${account.server}` : account.name })));
+const gameViewportStyle = computed(() => ({ transform: `translate(-50%, -50%) scale(${gameScale.value})` }));
 let binData = null;
 let operation = 0;
 let disposed = false;
 let bootTimer;
+let stageResizeObserver;
 const gameUrl = computed(() => {
   const url = new URL(`${import.meta.env.BASE_URL}game-launcher/game.html`, window.location.origin);
   url.search = new URLSearchParams({ slot: '1', storageScope: 'slot-1', parentOrigin: window.location.origin, restart: String(generation.value) });
@@ -83,6 +91,8 @@ async function start() {
   generation.value++;
   running.value = true;
   status.value = '正在加载游戏资源…';
+  await nextTick();
+  updateGameScale();
   clearTimeout(bootTimer);
   bootTimer = setTimeout(() => { status.value = '加载时间较长，请查看窗口内提示，或重启后重试。'; }, 90000);
 }
@@ -102,6 +112,13 @@ function restart() { stop(); start(); }
 function fail() {
   clearTimeout(bootTimer);
   status.value = '游戏启动失败，请查看窗口内提示，或重启后重试。';
+}
+function updateGameScale() {
+  if (!stage.value) return;
+  const width = stage.value.clientWidth;
+  const height = stage.value.clientHeight;
+  if (!width || !height) return;
+  gameScale.value = Math.min(width / GAME_WIDTH, height / GAME_HEIGHT);
 }
 async function fullscreen() {
   try {
@@ -128,8 +145,25 @@ function receive(event) {
     status.value = '游戏资源已加载，正在准备登录…';
   } else if (data.event === 'boot-failed') fail();
 }
-onMounted(() => { window.addEventListener('message', receive); refreshAccounts(); });
-onBeforeUnmount(() => { disposed = true; operation++; binData = null; clearTimeout(bootTimer); window.removeEventListener('message', receive); });
+onMounted(() => {
+  window.addEventListener('message', receive);
+  window.addEventListener('resize', updateGameScale);
+  if (typeof ResizeObserver !== 'undefined' && stage.value) {
+    stageResizeObserver = new ResizeObserver(updateGameScale);
+    stageResizeObserver.observe(stage.value);
+  }
+  updateGameScale();
+  refreshAccounts();
+});
+onBeforeUnmount(() => {
+  disposed = true;
+  operation++;
+  binData = null;
+  clearTimeout(bootTimer);
+  stageResizeObserver?.disconnect();
+  window.removeEventListener('resize', updateGameScale);
+  window.removeEventListener('message', receive);
+});
 </script>
 
 <style scoped>
@@ -141,11 +175,11 @@ h1 { margin: 0 0 8px; font-size: 24px; }
 .game-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .account-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .account-picker .n-select { flex: 1; min-width: 200px; }
-.game-stage { width: min(100%, 420px); aspect-ratio: 9 / 16; margin: auto; overflow: hidden; border-radius: 12px; background: #151820; box-shadow: 0 8px 30px #0002; }
-.game-stage iframe { width: 100%; height: 100%; border: 0; display: block; }
+.game-stage { position: relative; width: min(100%, 420px); aspect-ratio: 9 / 16; margin: auto; overflow: hidden; border-radius: 12px; background: #151820; box-shadow: 0 8px 30px #0002; }
+.game-viewport { position: absolute; left: 50%; top: 50%; width: 720px; height: 1280px; transform-origin: center; }
+.game-viewport iframe { width: 720px; height: 1280px; border: 0; display: block; }
 .game-empty { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; }
 .game-empty strong { font-size: 28px; }
-.game-stage:fullscreen { width: 100%; height: 100%; border-radius: 0; display: flex; justify-content: center; }
-.game-stage:fullscreen iframe { width: min(100%, 56.25vh); }
+.game-stage:fullscreen { width: 100%; height: 100%; border-radius: 0; }
 @media (max-width: 600px) { .game-login { padding: 8px; } .game-stage { border-radius: 8px; } }
 </style>
