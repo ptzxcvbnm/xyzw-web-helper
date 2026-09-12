@@ -274,6 +274,52 @@
         }
       })
     })
+
+    var renderFlow = global.cc.RenderFlow
+    var renderPrototype = renderFlow && renderFlow.prototype
+    if (!renderPrototype || typeof renderPrototype._updateRenderData !== 'function') return
+
+    var renderWarningShown = false
+    var auditedUpdateRenderData = function (node) {
+      var updated = false
+      try {
+        var component = node && node._renderComponent
+        var assembler = component && component._assembler
+        if (assembler && typeof assembler.updateRenderData === 'function') {
+          assembler.updateRenderData(component)
+          updated = true
+        }
+      } catch (error) {
+        if (!renderWarningShown) {
+          renderWarningShown = true
+          console.warn('[audit] deferred an incomplete Cocos render-data update')
+        }
+      }
+
+      // Leave the dirty flag set when the component/assembler is not ready so
+      // Cocos retries it on a later frame. Always continue the flow; the
+      // recovered launcher override stopped here and left following UI nodes
+      // undrawn until another input happened to invalidate them.
+      if (updated && node) {
+        node._renderFlag &= ~renderFlow.UPDATE_RENDER_DATA
+      }
+      if (this._next && typeof this._next._func === 'function') {
+        this._next._func(node)
+      }
+    }
+
+    Object.defineProperty(renderPrototype, '_updateRenderData', {
+      configurable: false,
+      enumerable: true,
+      get: function () {
+        return auditedUpdateRenderData
+      },
+      set: function (next) {
+        if (next !== auditedUpdateRenderData) {
+          console.warn('[audit] retained the safe Cocos RenderFlow update handler')
+        }
+      }
+    })
+    console.log('[audit] installed safe Cocos RenderFlow update handler')
   }
 })(window)
-

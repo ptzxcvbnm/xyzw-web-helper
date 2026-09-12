@@ -21,7 +21,9 @@ Local adaptations:
 - Removed quarantine scripts, script-manager startup and third-party HTTP origin.
 - Removed the in-game account popup, separate account list and import controls.
 - Reused assistant BIN/QR imports instead of maintaining a second account store.
-- Retained reference audio muting and platform compatibility shims.
+- Retained reference audio muting and readable platform compatibility shims.
+- Kept incomplete Cocos render-data nodes dirty while allowing the remaining UI
+  flow to continue; remote bundles cannot replace this safe handler.
 - Kept all resource paths relative to this directory.
 
 This iframe is same-origin. Storage namespacing prevents accidental key collisions;
@@ -31,6 +33,8 @@ the configured Hortor CDN. The game HTML scopes its Cocos CSP exception to itsel
 Manual login is independent of assistant task management. Stop automation for the
 same role before logging in; closing the game does not resume backend tasks.
 The initial standalone bridge was validated with a user-provided BIN on 2026-09-10.
-For the external bridge, run `node --test test/game-launcher-login.test.mjs` and
-`npm run build`. The tests cover delayed credentials, origin/sender validation,
-duplicate handshakes, invalid credentials and authentication rejection.
+For the external bridge and render guard, run
+`node --test test/game-launcher-login.test.mjs test/game-launcher-render-flow.test.mjs`
+and `npm run build`. The tests cover delayed credentials, origin/sender validation,
+duplicate handshakes, invalid credentials, authentication rejection and Cocos
+render-flow continuation/retry behavior.
