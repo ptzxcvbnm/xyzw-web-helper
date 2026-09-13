@@ -254,17 +254,6 @@
       console.log('[audit] installed memory-only Web cacheManager')
     }
 
-    // Cocos 2.4's dynamic atlas resets packed textures during scene changes,
-    // but the recovered game's persistent FairyGUI sprites are not all marked
-    // dirty afterwards. Their materials keep pointing at the destroyed atlas
-    // until an input event happens to rebuild that individual sprite. Keep Web
-    // sprites on their original textures so scene switching cannot invalidate
-    // whole UI batches (background, top bar and bottom navigation).
-    if (global.cc.dynamicAtlasManager) {
-      global.cc.dynamicAtlasManager.enabled = false
-      console.log('[audit] disabled Cocos dynamic atlas for stable scene switching')
-    }
-
     ;['loadAny', 'loadBundle'].forEach(function (methodName) {
       var original = global.cc.assetManager[methodName]
       if (typeof original !== 'function') return
@@ -291,7 +280,10 @@
     if (!renderPrototype || typeof renderPrototype._updateRenderData !== 'function') return
 
     var renderWarningShown = false
-    var auditedUpdateRenderData = function (node) {
+    var updateRenderDataFlag = renderFlow.FLAG_UPDATE_RENDER_DATA
+    var originalRender = renderPrototype._render
+
+    function updateReadyRenderData(node) {
       var updated = false
       try {
         var component = node && node._renderComponent
@@ -307,16 +299,56 @@
         }
       }
 
+      if (updated && node && typeof updateRenderDataFlag === 'number') {
+        node._renderFlag &= ~updateRenderDataFlag
+      }
+      return updated
+    }
+
+    var auditedUpdateRenderData = function (node) {
+      updateReadyRenderData(node)
+
       // Leave the dirty flag set when the component/assembler is not ready so
       // Cocos retries it on a later frame. Always continue the flow; the
       // recovered launcher override stopped here and left following UI nodes
       // undrawn until another input happened to invalidate them.
-      if (updated && node) {
-        node._renderFlag &= ~renderFlow.UPDATE_RENDER_DATA
-      }
       if (this._next && typeof this._next._func === 'function') {
         this._next._func(node)
       }
+    }
+
+    // The recovered game's CustomBatching assembler deliberately invokes a
+    // render-only flow for its children. When a child was disabled and enabled
+    // during a scene switch, FLAG_UPDATE_RENDER_DATA remained outside that
+    // flow, so the sprite was drawn with stale/empty vertex data. Pointer input
+    // dirtied only the clicked sprite, which explains the apparently random
+    // one-at-a-time recovery. Refresh dirty render data immediately before the
+    // render step as a Web fallback; the normal Cocos flow has already cleared
+    // this flag and therefore does not do duplicate work.
+    if (typeof originalRender === 'function') {
+      var auditedRender = function (node) {
+        if (
+          node &&
+          typeof updateRenderDataFlag === 'number' &&
+          (node._renderFlag & updateRenderDataFlag) !== 0
+        ) {
+          updateReadyRenderData(node)
+        }
+        return originalRender.call(this, node)
+      }
+
+      Object.defineProperty(renderPrototype, '_render', {
+        configurable: false,
+        enumerable: true,
+        get: function () {
+          return auditedRender
+        },
+        set: function (next) {
+          if (next !== auditedRender) {
+            console.warn('[audit] retained the safe Cocos render handler')
+          }
+        }
+      })
     }
 
     Object.defineProperty(renderPrototype, '_updateRenderData', {

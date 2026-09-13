@@ -14,10 +14,13 @@ function setup() {
     _updateRenderData() {
       throw new Error('engine handler should be replaced')
     },
+    _render(node) {
+      node.rendered = (node.rendered || 0) + 1
+    },
   }
   const RenderFlow = function () {}
   RenderFlow.prototype = renderPrototype
-  RenderFlow.UPDATE_RENDER_DATA = 4
+  RenderFlow.FLAG_UPDATE_RENDER_DATA = 4
   const window = {
     cc: {
       RenderFlow,
@@ -43,11 +46,6 @@ function setup() {
   window.installAuditedCocosGuards()
   return { window, renderPrototype, warnings }
 }
-
-test('disables the dynamic atlas before remote scenes can pack persistent UI sprites', () => {
-  const { window } = setup()
-  assert.equal(window.cc.dynamicAtlasManager.enabled, false)
-})
 
 test('updates ready render data, clears the flag and continues the flow', () => {
   const { renderPrototype } = setup()
@@ -109,4 +107,47 @@ test('does not allow remote bundles to replace the safe render handler', () => {
   const installed = renderPrototype._updateRenderData
   renderPrototype._updateRenderData = function () {}
   assert.equal(renderPrototype._updateRenderData, installed)
+})
+
+test('refreshes dirty render data skipped by the custom batching render-only flow', () => {
+  const { renderPrototype } = setup()
+  let updates = 0
+  const component = {
+    _assembler: {
+      updateRenderData(received) {
+        assert.equal(received, component)
+        updates++
+      },
+    },
+  }
+  const node = { _renderComponent: component, _renderFlag: 5 }
+  renderPrototype._render.call({}, node)
+  assert.equal(updates, 1)
+  assert.equal(node._renderFlag, 1)
+  assert.equal(node.rendered, 1)
+})
+
+test('does not repeat render-data work after the normal flow cleared the flag', () => {
+  const { renderPrototype } = setup()
+  let updates = 0
+  const node = {
+    _renderComponent: {
+      _assembler: {
+        updateRenderData() {
+          updates++
+        },
+      },
+    },
+    _renderFlag: 1,
+  }
+  renderPrototype._render.call({}, node)
+  assert.equal(updates, 0)
+  assert.equal(node.rendered, 1)
+})
+
+test('does not allow remote bundles to replace the safe render fallback', () => {
+  const { renderPrototype } = setup()
+  const installed = renderPrototype._render
+  renderPrototype._render = function () {}
+  assert.equal(renderPrototype._render, installed)
 })
