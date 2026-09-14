@@ -52,7 +52,6 @@ export function createServerDeps(gameManager, db, userId, options = {}) {
     defaultBoxType: 2001,
     defaultFishType: 1,
     targetBoxPoints: 1000,
-    useGoldRefreshFallback: false,
     commandDelay: commandDelay,
     taskDelay: taskDelay,
     actionDelay: 300,
@@ -60,14 +59,8 @@ export function createServerDeps(gameManager, db, userId, options = {}) {
     refreshDelay: 1000,
     longDelay: 3000,
     maxActive: maxActive,
-    carMinColor: 4,
     connectionTimeout: 30000,
     reconnectDelay: 3000,
-    smartDepartureGoldThreshold: 0,
-    smartDepartureRecruitThreshold: 0,
-    smartDepartureJadeThreshold: 0,
-    smartDepartureTicketThreshold: 0,
-    smartDepartureMatchAll: false,
     ...savedBatchSettings,
   };
 

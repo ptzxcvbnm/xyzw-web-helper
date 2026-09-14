@@ -320,17 +320,6 @@ export function registerDefaultCommands(reg) {
     .register("collection_claimfreereward")
     .register("collection_goodslist")
 
-    // 车辆相关
-    .register("car_getrolecar")
-    .register("car_detail", { carId: 0, withLog: true, chat: false })
-    .register("car_refresh", { carId: 0 })
-    .register("car_claim", { carId: 0 })
-    .register("car_send", { carId: 0, helperId: 0, text: "" })
-    .register("car_getmemberhelpingcnt")
-    .register("car_getmemberrank")
-    .register("car_research")
-    .register("car_claimpartconsumereward")
-
     // 功法
     .register("legacy_getinfo")
     .register("legacy_claimhangup")
@@ -1102,16 +1091,6 @@ export class XyzwWebSocketClient {
       // 军团信息
       legion_getinforesp: "legion_getinfo",
       legion_getinforresp: "legion_getinfo",
-      // 车辆相关响应映射
-      car_getrolecarresp: "car_getrolecar",
-      car_detailresp: "car_detail",
-      car_refreshresp: "car_refresh",
-      car_claimresp: "car_claim",
-      car_sendresp: "car_send",
-      car_getmemberhelpingcntresp: "car_getmemberhelpingcnt",
-      car_getmemberrankresp: "car_getmemberrank",
-      car_researchresp: "car_research",
-      car_claimpartconsumerewardresp: "car_claimpartconsumereward",
       role_gettargetteamresp: "role_gettargetteam",
       activity_warorderclaimresp: "activity_recyclewarorderrewardclaim",
       arena_getarearankresp: "arena_getarearank",

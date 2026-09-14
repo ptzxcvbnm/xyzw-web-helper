@@ -38,15 +38,11 @@ export const availableTasks = [
   { label: "一键爬塔", value: "climbTower" },
   { label: "一键爬怪异塔", value: "climbWeirdTower" },
   { label: "一键答题", value: "batchStudy" },
-  { label: "智能发车", value: "batchSmartSendCar" },
-  { label: "一键收车", value: "batchClaimCars" },
   { label: "批量开箱", value: "batchOpenBox" },
   { label: "按积分开箱", value: "batchOpenBoxByPoints" },
   { label: "领取宝箱积分", value: "batchClaimBoxPointReward" },
   { label: "批量钓鱼", value: "batchFish" },
   { label: "批量招募", value: "batchRecruit" },
-  { label: "一键宝库前3层", value: "batchbaoku13" },
-  { label: "一键宝库4,5层", value: "batchbaoku45" },
   { label: "一键梦境", value: "batchmengjing" },
   { label: "一键俱乐部签到", value: "batchclubsign" },
   { label: "一键竞技场战斗3次", value: "batcharenafight" },
@@ -74,14 +70,6 @@ export const availableTasks = [
   { label: "怪异塔奖励领取", value: "claim_weird_tower_all" },
   { label: "开碎片礼包", value: "batchOpenFragmentPacks" },
   { label: "宝箱达标奖励", value: "batchClaimBoxWeeklyRewards" },
-];
-
-// 车辆研究消耗表
-export const CarresearchItem = [
-  20, 21, 22, 23, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 47, 50, 53, 56,
-  59, 62, 65, 68, 71, 74, 78, 82, 86, 90, 94, 99, 104, 109, 114, 119, 126, 133,
-  140, 147, 154, 163, 172, 181, 190, 199, 210, 221, 232, 243, 369, 393, 422,
-  457, 498, 548, 607, 678, 763, 865, 1011,
 ];
 
 // 月度任务目标
@@ -145,21 +133,13 @@ export const defaultBatchSettings = {
   defaultFishType: 1,
   receiverId: "",
   password: "",
-  useGoldRefreshFallback: false,
   tokenListColumns: 2,
   commandDelay: 500,
   taskDelay: 500,
   maxActive: 2,
-  carMinColor: 4,
   connectionTimeout: 10000,
   reconnectDelay: 1000,
   maxLogEntries: 1000,
-  // 智能发车阈值设置
-  smartDepartureGoldThreshold: 0,
-  smartDepartureRecruitThreshold: 0,
-  smartDepartureJadeThreshold: 0,
-  smartDepartureTicketThreshold: 0,
-  smartDepartureMatchAll: false,
 };
 
 // 默认模板

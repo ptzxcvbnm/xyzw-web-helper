@@ -1,5 +1,5 @@
 /**
- * 后端任务执行器 - 将前端 createTaskDeps + 9个任务模块整合
+ * 后端任务执行器 - 将前端 createTaskDeps 与任务模块整合
  * 定时任务触发时调用此模块执行用户选择的任务
  */
 
@@ -7,14 +7,12 @@ import { createServerDeps } from './serverDeps.js';
 import { createTasksHangUp } from './batch/tasksHangUp.js';
 import { createTasksBottle } from './batch/tasksBottle.js';
 import { createTasksTower } from './batch/tasksTower.js';
-import { createTasksCar } from './batch/tasksCar.js';
 import { createTasksItem } from './batch/tasksItem.js';
 import { createTasksDungeon } from './batch/tasksDungeon.js';
 import { createTasksArena } from './batch/tasksArena.js';
 import { createTasksStore } from './batch/tasksStore.js';
 import { createTasksLegacy } from './batch/tasksLegacy.js';
 import { getActivityStatus, getTodayStartSec, isTodayAvailable, calculateMonthProgress, pickArenaTargetId } from './batch/connectionManager.js';
-import { normalizeCars, gradeLabel, shouldSendCar, canClaim, isBigPrize, countRacingRefreshTickets } from './batch/carUtils.js';
 import { gameLogger } from './logger.js';
 
 // 任务名 → 模块+函数名 映射
@@ -35,9 +33,6 @@ const TASK_MAP = {
   skinChallenge: { module: 'tower', fn: 'skinChallenge' },
   batchUseItems: { module: 'tower', fn: 'batchUseItems' },
   batchMergeItems: { module: 'tower', fn: 'batchMergeItems' },
-  // tasksCar
-  batchSmartSendCar: { module: 'car', fn: 'batchSmartSendCar' },
-  batchClaimCars: { module: 'car', fn: 'batchClaimCars' },
   // tasksItem
   batchOpenBox: { module: 'item', fn: 'batchOpenBox' },
   batchOpenBoxByPoints: { module: 'item', fn: 'batchOpenBoxByPoints' },
@@ -52,8 +47,6 @@ const TASK_MAP = {
   batchOpenFragmentPacks: { module: 'item', fn: 'batchOpenFragmentPacks' },
   batchClaimBoxWeeklyRewards: { module: 'item', fn: 'batchClaimBoxWeeklyRewards' },
   // tasksDungeon
-  batchbaoku13: { module: 'dungeon', fn: 'batchbaoku13' },
-  batchbaoku45: { module: 'dungeon', fn: 'batchbaoku45' },
   batchmengjing: { module: 'dungeon', fn: 'batchmengjing' },
   batchBuyDreamItems: { module: 'dungeon', fn: 'batchBuyDreamItems' },
   // tasksArena
@@ -117,20 +110,11 @@ export async function executeScheduledTask(task, userId, db, gameManager) {
   deps.calculateMonthProgress = calculateMonthProgress;
   deps.pickArenaTargetId = pickArenaTargetId;
 
-  // 注入车辆工具函数
-  deps.normalizeCars = normalizeCars;
-  deps.gradeLabel = gradeLabel;
-  deps.shouldSendCar = shouldSendCar;
-  deps.canClaim = canClaim;
-  deps.isBigPrize = isBigPrize;
-  deps.countRacingRefreshTickets = countRacingRefreshTickets;
-
   // 初始化所有任务模块
   const modules = {
     hangUp: createTasksHangUp(deps),
     bottle: createTasksBottle(deps),
     tower: createTasksTower(deps),
-    car: createTasksCar(deps),
     item: createTasksItem(deps),
     dungeon: createTasksDungeon(deps),
     arena: createTasksArena(deps),
