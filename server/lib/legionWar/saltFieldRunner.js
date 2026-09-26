@@ -58,6 +58,7 @@ export class SaltFieldRunner {
     this.status = 'idle';
     this.lastMsg = '';
     this.previousPosition = null;
+    this.battleTeam = null;
   }
 
   log(message, type = 'info') {
@@ -120,6 +121,10 @@ export class SaltFieldRunner {
         return;
       }
       this.battlefieldId = info.battlefieldId;
+      const freshRoleInfo = await this.gm.sendGetRoleInfo(this.tokenId);
+      const roleInfo = freshRoleInfo || this.gm.gameData?.get(this.tokenId)?.roleInfo;
+      this.battleTeam = getDefaultBattleTeam(roleInfo);
+      if (!Object.keys(this.battleTeam).length) throw new Error('未读取到默认阵容，停止布阵');
       const token = this.gm.getActualToken(this.tokenId);
       if (!token) { this.log('拿不到登录token，跳过', 'error'); this.status = 'failed'; this.running = false; return; }
 
@@ -171,8 +176,7 @@ export class SaltFieldRunner {
   }
 
   async _setTeam() {
-    const roleInfo = await this.gm.sendGetRoleInfo(this.tokenId);
-    const battleTeam = getDefaultBattleTeam(roleInfo);
+    const battleTeam = this.battleTeam || {};
     if (!Object.keys(battleTeam).length) throw new Error('未读取到默认阵容，停止布阵');
     this.log(`布阵：默认阵容（${Object.keys(battleTeam).length}名武将）...`);
     await this.ws.sendWithPromise('war_teamsetbattleteam', { battlefieldId: this.battlefieldId, battleTeam }, 8000);
