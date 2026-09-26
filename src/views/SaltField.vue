@@ -3,13 +3,13 @@
     <n-card title="盐场自动创地" :bordered="false">
       <template #header-extra>
         <n-text depth="3" style="font-size: 12px;">
-          每周六 20:00-20:30 自动执行 · 吕布单将 · 关闭网页仍运行
+          每周六 20:00-20:30 自动执行 · 默认阵容 · 关闭网页仍运行
         </n-text>
       </template>
 
       <n-space vertical :size="16">
         <n-alert type="info" :show-icon="true">
-          勾选参与盐场的账号并保存后，每周六 20:00 服务器自动进场、吕布单将布阵、循环飞相邻格创地，到 20:30 停止。也可在盐场开放时手动点"开始"立即执行。
+          勾选参与盐场的账号并保存后，每周六 20:00 服务器自动进场、使用当前默认阵容布阵、循环飞相邻格创地，到 20:30 停止。也可在盐场开放时手动点"开始"立即执行。
         </n-alert>
 
         <n-space align="center">
@@ -149,7 +149,7 @@ onMounted(async () => {
   await loadEnabled();
   await refreshAll();
   pushClient = new ServerPushClient((msg) => {
-    if (msg.type === 'saltfield') refreshAll();
+    if (msg.type === 'log' && msg.data?.tokenId === 'saltfield') refreshAll();
   });
   pushClient.connect();
 });

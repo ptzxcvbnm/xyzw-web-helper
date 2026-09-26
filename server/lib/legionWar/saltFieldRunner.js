@@ -1,5 +1,5 @@
 import { LegionWarWebSocketClient } from '../legionWarWebSocket.js';
-import { pickRandomNeighbor } from './hexUtils.js';
+import { isRoadPoint, pickRandomNeighbor } from './hexUtils.js';
 import { gameLogger } from '../logger.js';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -14,12 +14,31 @@ function pick(obj, name) {
   return undefined;
 }
 
-/** 吕布单将 */
-const LU_BU_TEAM = { '0': 107 };
+/** 从主服角色信息提取当前默认布阵（位置 -> 武将 ID） */
+export function getDefaultBattleTeam(roleInfo) {
+  const role = pick(roleInfo, 'role') || roleInfo;
+  const team = {};
+  for (const [slot, value] of Object.entries(role?.battleTeam || {})) {
+    const position = Number(slot);
+    const heroId = Number(value && typeof value === 'object' ? value.heroId ?? value.id : value);
+    if (Number.isInteger(position) && position >= 0 && position < 5 && Number.isInteger(heroId) && heroId > 0) {
+      team[String(position)] = heroId;
+    }
+  }
+  if (Object.keys(team).length) return team;
+  for (const hero of Object.values(role?.heroes || {})) {
+    const position = Number(hero?.battleTeamSlot);
+    const heroId = Number(hero?.heroId ?? hero?.id);
+    if (Number.isInteger(position) && position >= 0 && position < 5 && Number.isInteger(heroId) && heroId > 0) {
+      team[String(position)] = heroId;
+    }
+  }
+  return team;
+}
 
 /**
  * 盐场自动创地 Runner（单账号一条连接）
- * 流程：主服拿battlefield -> 建盐场连接 -> 进场 -> 吕布布阵 -> 循环创地
+ * 流程：主服拿battlefield -> 建盐场连接 -> 进场 -> 默认阵容布阵 -> 循环创地
  */
 export class SaltFieldRunner {
   constructor({ gameManager, tokenId, tokenName, userId, addLog, isInWindow }) {
@@ -38,6 +57,7 @@ export class SaltFieldRunner {
     this.stopFlag = false;
     this.status = 'idle';
     this.lastMsg = '';
+    this.previousPosition = null;
   }
 
   log(message, type = 'info') {
@@ -134,6 +154,12 @@ export class SaltFieldRunner {
       if (!this.myCodeId) { this.log('未识别到自己codeId', 'error'); this.status = 'failed'; this.stop(); return; }
       this.log(`进场成功 codeId=${this.myCodeId}`, 'success');
 
+      // enterbattlefield 可能只返回增量；地图页也是另外请求完整快照。
+      const mapResp = await this.ws.sendWithPromise('war_getbattlefieldinfo', { battlefieldId: this.battlefieldId }, 10000);
+      const fullBf = pick(mapResp, 'battlefield');
+      if (fullBf) this.mergeBattlefield(fullBf);
+      else this.log('未收到完整战场快照，使用已知地图', 'warning');
+
       await this._setTeam();
       await this._digLoop();
     } catch (e) {
@@ -145,20 +171,23 @@ export class SaltFieldRunner {
   }
 
   async _setTeam() {
-    this.log('布阵：吕布单将...');
-    await this.ws.sendWithPromise('war_teamsetbattleteam', { battlefieldId: this.battlefieldId, battleTeam: LU_BU_TEAM }, 8000);
+    const roleInfo = await this.gm.sendGetRoleInfo(this.tokenId);
+    const battleTeam = getDefaultBattleTeam(roleInfo);
+    if (!Object.keys(battleTeam).length) throw new Error('未读取到默认阵容，停止布阵');
+    this.log(`布阵：默认阵容（${Object.keys(battleTeam).length}名武将）...`);
+    await this.ws.sendWithPromise('war_teamsetbattleteam', { battlefieldId: this.battlefieldId, battleTeam }, 8000);
     await sleep(800);
-    const setResp = await this.ws.sendWithPromise('war_setbattleteam', { battlefieldId: this.battlefieldId, battleTeam: LU_BU_TEAM }, 8000);
+    const setResp = await this.ws.sendWithPromise('war_setbattleteam', { battlefieldId: this.battlefieldId, battleTeam }, 8000);
     const setBf = pick(setResp, 'battlefield');
     if (setBf) this.mergeBattlefield(setBf);
     // 等出生点 position
     for (let i = 0; i < 20; i++) {
       const me = this.myRole();
-      if (me && me.position && me.state === 'idle') break;
+      if (me && me.position && Number(me.position.x) >= 0 && Number(me.position.y) >= 0 && me.state === 'idle') break;
       await sleep(500);
     }
     const me = this.myRole();
-    if (me && me.position) this.log(`布阵完成，出生点 (${me.position.x},${me.position.y})`, 'success');
+    if (me && me.position && Number(me.position.x) >= 0 && Number(me.position.y) >= 0) this.log(`布阵完成，出生点 (${me.position.x},${me.position.y})`, 'success');
     else this.log('布阵后未拿到出生点，继续尝试', 'warning');
   }
 
@@ -175,9 +204,9 @@ export class SaltFieldRunner {
     this.log('开始循环创地');
     while (!this.stopFlag && this.isInWindow()) {
       const me = this.myRole();
-      if (!me || !me.position) { await sleep(1000); continue; }
+      if (!me || !me.position || Number(me.position.x) < 0 || Number(me.position.y) < 0) { await sleep(1000); continue; }
       const { x, y } = me.position;
-      const target = pickRandomNeighbor(x, y, this.snapshot.buildingData);
+      const target = pickRandomNeighbor(x, y, this.snapshot.buildingData, this.previousPosition);
       if (!target) { this.log('无可用相邻格，等待', 'warning'); await sleep(2000); continue; }
 
       try {
@@ -194,10 +223,13 @@ export class SaltFieldRunner {
       let arrived = false;
       for (let i = 0; i < 40 && !this.stopFlag; i++) {
         const m = this.myRole();
-        if (m && m.state === 'idle' && m.position && m.position.x === target.x && m.position.y === target.y) { arrived = true; break; }
+        if (m && m.state === 'idle' && m.position && Number(m.position.x) === target.x && Number(m.position.y) === target.y) { arrived = true; break; }
         await sleep(500);
       }
       if (!arrived) { this.log('行军超时，重试', 'warning'); continue; }
+      this.previousPosition = { x: Number(x), y: Number(y) };
+
+      if (isRoadPoint(target.x, target.y)) { await sleep(1500); continue; }
 
       try {
         await this.ws.sendWithPromise('war_startattackbuilding', { battlefieldId: this.battlefieldId, buildingId: `${target.x}_${target.y}` }, 8000);
