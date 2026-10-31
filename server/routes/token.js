@@ -89,7 +89,7 @@ export function tokenRoutes(db, gameManager) {
       const token = db.getToken(req.params.id, req.userId);
       if (!token) return res.status(404).json({ error: 'not found' });
       await gameManager.connect(req.params.id, req.userId);
-      res.json({ status: 'connecting' });
+      res.json({ status: 'connecting', connection: gameManager.getConnectionMetadata(req.params.id) });
     } catch (e) {
       res.status(400).json({ error: e.message });
     }
@@ -102,10 +102,11 @@ export function tokenRoutes(db, gameManager) {
 
   r.post('/:id/send', async (req, res) => {
     try {
-      const { cmd, params, timeout } = req.body;
+      if (!db.getToken(req.params.id, req.userId)) return res.status(404).json({ error: 'not found' });
+      const { cmd, params, timeout, retryOnTimeout } = req.body;
       if (!cmd) return res.status(400).json({ error: 'cmd required' });
-      const result = await gameManager.sendMessageWithPromise(req.params.id, cmd, params || {}, timeout || 5000);
-      res.json({ result });
+      const result = await gameManager.sendMessageWithPromise(req.params.id, cmd, params || {}, timeout || 5000, { retryOnTimeout: retryOnTimeout !== false });
+      res.json({ result, connection: gameManager.getConnectionMetadata(req.params.id) });
     } catch (e) {
       res.status(400).json({ error: e.message });
     }

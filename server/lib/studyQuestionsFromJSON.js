@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const candidates = [
   path.resolve(__dirname, '../../public/answer.json'),
   path.resolve(__dirname, '../../dist/answer.json'),
+  path.join(process.env.XYZW_PUBLIC_DIR || '/var/www/xyzw-web-helper', 'answer.json'),
 ];
 
 let questionsData = null;

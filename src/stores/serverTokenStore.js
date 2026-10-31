@@ -26,6 +26,15 @@ export const useServerTokenStore = defineStore('serverTokens', () => {
 
   const wsConnections = ref({});
 
+  function updateConnectionMetadata(tokenId, meta) {
+    if (!meta?.sessionId) return;
+    const previous = wsConnections.value[tokenId]?.client;
+    const client = previous?.sessionId === meta.sessionId ? previous : { sessionId: meta.sessionId };
+    client.serverTime = meta.serverTime;
+    wsConnections.value[tokenId] = { client };
+    connectionStatuses.value[tokenId] = meta.status;
+  }
+
   let pushClient = null;
 
   function handlePush(msg) {
@@ -66,6 +75,7 @@ export const useServerTokenStore = defineStore('serverTokens', () => {
     const statuses = await statusApi.getAll();
     for (const s of statuses) {
       connectionStatuses.value[s.id] = s.status;
+      updateConnectionMetadata(s.id, s.connection);
       if (s.gameData) gameDataMap.value[s.id] = s.gameData;
     }
   }
@@ -106,7 +116,8 @@ export const useServerTokenStore = defineStore('serverTokens', () => {
 
   async function connectToken(id) {
     connectionStatuses.value[id] = 'connecting';
-    await tokenApi.connect(id);
+    const response = await tokenApi.connect(id);
+    updateConnectionMetadata(id, response?.connection);
   }
 
   async function disconnectToken(id) {
@@ -123,11 +134,12 @@ export const useServerTokenStore = defineStore('serverTokens', () => {
   }
 
   async function sendMessage(tokenId, cmd, params, timeout) {
-    return tokenApi.send(tokenId, cmd, params, timeout);
+    return tokenApi.send(tokenId, cmd, params, timeout, false);
   }
 
   async function sendMessageWithPromise(tokenId, cmd, params = {}, timeout = 5000) {
-    const res = await tokenApi.send(tokenId, cmd, params, timeout);
+    const res = await tokenApi.send(tokenId, cmd, params, timeout, false);
+    updateConnectionMetadata(tokenId, res?.connection);
     return res?.result !== undefined ? res.result : res;
   }
 

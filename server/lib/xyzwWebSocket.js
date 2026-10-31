@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import { randomUUID } from 'node:crypto';
 import { $CacheManager } from './cache.js';
 import { wsLogger, gameLogger } from './logger.js';
 
@@ -79,6 +80,8 @@ export class XyzwWebSocketClient {
     this.messageListener = null;
     this.showMsg = false;
     this.connected = false;
+    this.connectionId = randomUUID();
+    this.serverTime = undefined;
     this.isReconnecting = false;
 
     this.promises = Object.create(null);
@@ -93,6 +96,8 @@ export class XyzwWebSocketClient {
   }
 
   init() {
+    this.connectionId = randomUUID();
+    this.serverTime = undefined;
     wsLogger.info(`连接: ${this.url.split("?")[0]}`);
 
     this.socket = new WebSocket(this.url);
@@ -170,6 +175,9 @@ export class XyzwWebSocketClient {
   _updateAckFromPacket(packet) {
     if (!packet || typeof packet !== 'object') return;
     const actualPacket = packet._raw || packet;
+    if (Number.isFinite(actualPacket.time) && actualPacket.time > 0) {
+      this.serverTime = Math.max(this.serverTime || 0, actualPacket.time);
+    }
     const incomingSeq = typeof actualPacket?.seq === 'number' ? actualPacket.seq
       : typeof packet.seq === 'number' ? packet.seq : undefined;
     // _sys/ack 心跳响应通常带 seq=0，不能把已确认的服务端序号回退。
@@ -342,8 +350,13 @@ export class XyzwWebSocketClient {
   }
 
   _handlePromiseResponse(packet) {
+    const responseId = packet.resp;
+    const hasSequence = typeof responseId === 'number'
+      || (typeof responseId === 'string' && /^\d+$/.test(responseId));
+    if (hasSequence && !this.promises[responseId]) return;
     if (packet.resp !== undefined && this.promises[packet.resp]) {
       const promiseData = this.promises[packet.resp];
+      clearTimeout(promiseData.timer);
       delete this.promises[packet.resp];
       const responseBody = packet.rawData !== undefined ? packet.rawData
         : packet.decodedBody !== undefined ? packet.decodedBody : packet.body;

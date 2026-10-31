@@ -58,7 +58,7 @@ export const tokenApi = {
   remove: (id) => api.delete(`/token/${id}`).then(r => r.data),
   connect: (id) => api.post(`/token/${id}/connect`).then(r => r.data),
   disconnect: (id) => api.post(`/token/${id}/disconnect`).then(r => r.data),
-  send: (id, cmd, params, timeout) => api.post(`/token/${id}/send`, { cmd, params, timeout }).then(r => r.data),
+  send: (id, cmd, params, timeout, retryOnTimeout = true) => api.post(`/token/${id}/send`, { cmd, params, timeout, retryOnTimeout }).then(r => r.data),
   importTokens: (tokens) => api.post('/token/import', { tokens }).then(r => r.data),
   exportAll: () => api.get('/token/export/all').then(r => r.data),
   uploadBin: (id, buffer) => api.post(`/token/${id}/bin`, buffer, { headers: { 'Content-Type': 'application/octet-stream' } }).then(r => r.data),

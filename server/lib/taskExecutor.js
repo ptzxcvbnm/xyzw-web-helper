@@ -12,6 +12,12 @@ import { createTasksDungeon } from './batch/tasksDungeon.js';
 import { createTasksArena } from './batch/tasksArena.js';
 import { createTasksStore } from './batch/tasksStore.js';
 import { createTasksLegacy } from './batch/tasksLegacy.js';
+import { createTasksExtraStore } from './batch/tasksExtraStore.js';
+import { createTasksExtraItem } from './batch/tasksExtraItem.js';
+import { createTasksCampChallenge } from './batch/tasksCampChallenge.js';
+import { createTasksXuanwuBlessing } from './batch/tasksXuanwuBlessing.js';
+import { createTasksFootball } from './batch/tasksFootball.js';
+import { createTasksApex } from './batch/tasksApex.js';
 import { getActivityStatus, getTodayStartSec, isTodayAvailable, calculateMonthProgress, pickArenaTargetId } from './batch/connectionManager.js';
 import { gameLogger } from './logger.js';
 
@@ -39,6 +45,7 @@ const TASK_MAP = {
   batchClaimBoxPointReward: { module: 'item', fn: 'batchClaimBoxPointReward' },
   batchFish: { module: 'item', fn: 'batchFish' },
   batchRecruit: { module: 'item', fn: 'batchRecruit' },
+  batchRedeemCodes: { module: 'item', fn: 'batchRedeemCodes' },
   batchHeroUpgrade: { module: 'item', fn: 'batchHeroUpgrade' },
   batchBookUpgrade: { module: 'item', fn: 'batchBookUpgrade' },
   batchClaimStarRewards: { module: 'item', fn: 'batchClaimStarRewards' },
@@ -48,6 +55,8 @@ const TASK_MAP = {
   batchClaimBoxWeeklyRewards: { module: 'item', fn: 'batchClaimBoxWeeklyRewards' },
   // tasksDungeon
   batchmengjing: { module: 'dungeon', fn: 'batchmengjing' },
+  batchbaoku13: { module: 'dungeon', fn: 'batchbaoku13' },
+  batchbaoku45: { module: 'dungeon', fn: 'batchbaoku45' },
   batchBuyDreamItems: { module: 'dungeon', fn: 'batchBuyDreamItems' },
   // tasksArena
   batcharenafight: { module: 'arena', fn: 'batcharenafight' },
@@ -57,6 +66,14 @@ const TASK_MAP = {
   legion_storebuygoods: { module: 'store', fn: 'legion_storebuygoods' },
   legionStoreBuySkinCoins: { module: 'store', fn: 'legionStoreBuySkinCoins' },
   store_purchase: { module: 'store', fn: 'store_purchase' },
+  store_syncpurchaseconfig: { module: 'store', fn: 'store_syncpurchaseconfig' },
+  batchApplyLegion: { module: 'hangUp', fn: 'batchApplyLegion' },
+  batchCampChallenge: { module: 'camp', fn: 'batchCampChallenge' },
+  batchCampChallengePet: { module: 'camp', fn: 'batchCampChallengePet' },
+  batchCampClaimTasks: { module: 'camp', fn: 'batchCampClaimTasks' },
+  batchXuanwuBlessing: { module: 'xuanwu', fn: 'batchXuanwuBlessing' },
+  batchFootballBet: { module: 'football', fn: 'batchFootballBet' },
+  batchApexGuess: { module: 'apex', fn: 'batchApexGuess' },
   collection_claimfreereward: { module: 'store', fn: 'collection_claimfreereward' },
   weeklyFreeGift: { module: 'store', fn: 'weeklyFreeGift' },
   mondayFreeGift: { module: 'store', fn: 'mondayFreeGift' },
@@ -69,8 +86,6 @@ const TASK_MAP = {
   // tasksLegacy
   batchLegacyClaim: { module: 'legacy', fn: 'batchLegacyClaim' },
   batchLegacyGiftSendEnhanced: { module: 'legacy', fn: 'batchLegacyGiftSendEnhanced' },
-  // tasksHangUp 补充
-  batchWarGuessCheer: { module: 'hangUp', fn: 'batchWarGuessCheer' },
   // 日常任务（特殊处理）
   startBatch: { module: 'special', fn: 'startBatch' },
 };
@@ -101,6 +116,7 @@ export async function executeScheduledTask(task, userId, db, gameManager) {
     maxActive: settings.maxActive || 3,
     commandDelay: settings.commandDelay || 500,
     taskDelay: settings.taskDelay || 1000,
+    taskSettings: settings,
   });
 
   // 注入活动状态辅助函数
@@ -115,11 +131,15 @@ export async function executeScheduledTask(task, userId, db, gameManager) {
     hangUp: createTasksHangUp(deps),
     bottle: createTasksBottle(deps),
     tower: createTasksTower(deps),
-    item: createTasksItem(deps),
+    item: { ...createTasksItem(deps), ...createTasksExtraItem(deps) },
     dungeon: createTasksDungeon(deps),
     arena: createTasksArena(deps),
-    store: createTasksStore(deps),
+    store: { ...createTasksStore(deps), ...createTasksExtraStore(deps) },
     legacy: createTasksLegacy(deps),
+    camp: createTasksCampChallenge(deps),
+    xuanwu: createTasksXuanwuBlessing(deps),
+    football: createTasksFootball(deps),
+    apex: createTasksApex(deps),
   };
 
   const results = [];
@@ -159,7 +179,9 @@ export async function executeScheduledTask(task, userId, db, gameManager) {
     deps.addLog({ time: new Date().toLocaleTimeString(), message: `=== 开始执行: ${taskName} ===`, type: 'info' });
 
     try {
-      await fn();
+      const argument = taskName === 'batchApplyLegion' ? settings.legionApplyTargetId
+        : ['batchOpenBox', 'batchOpenBoxByPoints', 'batchFish', 'batchRecruit', 'batchLegacyGiftSendEnhanced'].includes(taskName) ? true : undefined;
+      await fn(argument);
       results.push({ task: taskName, status: 'ok' });
     } catch (e) {
       deps.addLog({ time: new Date().toLocaleTimeString(), message: `任务失败: ${taskName} - ${e.message}`, type: 'error' });
@@ -207,6 +229,7 @@ async function executeStartBatch(deps, modules) {
       });
 
       await runner.run(tokenId, {
+        shouldStop: () => shouldStop.value,
         onLog: (entry) => addLog({ time: entry.time, message: `[${token.name}] ${entry.message}`, type: entry.type }),
         onProgress: () => {},
       }, settings);

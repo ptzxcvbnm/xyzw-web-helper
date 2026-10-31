@@ -1,3 +1,4 @@
+<!-- Adapted from w1249178256/xyzw_web_helper @ b408faa, CC BY-NC-SA 4.0; see THIRD_PARTY_NOTICES.md. -->
 <template>
   <div class="batch-daily-tasks">
     <div class="main-layout">
@@ -14,9 +15,10 @@
             gap: 12px;
           "
         >
-          <div style="display: flex; align-items: center; gap: 16px">
+          <div class="header-title">
             <h2>批量日常任务</h2>
             <div
+              class="schedule-summary"
               style="
                 display: flex;
                 align-items: center;
@@ -41,7 +43,7 @@
               <div v-else style="font-size: 14px; color: #6c757d">
                 暂无定时任务
               </div>
-              <div style="display: flex; gap: 8px">
+              <div class="schedule-actions">
                 <n-button type="primary" size="small" @click="openTaskModal">
                   新增定时任务
                 </n-button>
@@ -59,9 +61,23 @@
                   <n-button size="small">导入配置</n-button>
                 </n-upload>
               </div>
+              <div
+                class="setting-item"
+                style="
+                  flex-direction: row;
+                  justify-content: space-between;
+                  align-items: center;
+                "
+              >
+                <label class="setting-label">黑市采购清单配置</label>
+                <n-button size="small" @click="openBlackMarketPurchaseModal">
+                  点击配置
+                </n-button>
+              </div>
             </div>
           </div>
           <div
+            class="run-actions"
             style="
               display: flex;
               align-items: center;
@@ -236,25 +252,30 @@
                 :y-gap="8"
                 :cols="batchSettings.tokenListColumns"
               >
-                <n-grid-item v-for="token in sortedTokens" :key="token.id">
+                <n-grid-item
+                  v-for="gameToken in sortedTokens"
+                  :key="gameToken.id"
+                >
                   <div class="token-row">
                     <n-checkbox
-                      :value="token.id"
-                      :label="token.name"
+                      :value="gameToken.id"
+                      :label="gameToken.name"
                       style="flex: 1"
                     >
                       <div class="token-item">
-                        <span>{{ token.name }}</span>
+                        <span>{{ gameToken.name }}</span>
                         <n-tag
                           size="small"
-                          :type="getStatusType(token.id)"
+                          :type="getStatusType(gameToken.id)"
                           style="margin-left: 8px"
                         >
-                          {{ getStatusText(token.id) }}
+                          {{ getStatusText(gameToken.id) }}
                         </n-tag>
                         <!-- 显示token所属的分组 -->
                         <div
-                          v-if="tokenStore.getTokenGroups(token.id).length > 0"
+                          v-if="
+                            tokenStore.getTokenGroups(gameToken.id).length > 0
+                          "
                           style="
                             margin-left: 8px;
                             display: inline-flex;
@@ -263,7 +284,9 @@
                           "
                         >
                           <n-tag
-                            v-for="group in tokenStore.getTokenGroups(token.id)"
+                            v-for="group in tokenStore.getTokenGroups(
+                              gameToken.id,
+                            )"
                             :key="group.id"
                             size="small"
                             :color="{ color: group.color, textColor: 'white' }"
@@ -277,7 +300,7 @@
                     <n-button
                       size="tiny"
                       circle
-                      @click.stop="openSettings(token)"
+                      @click.stop="openSettings(gameToken)"
                     >
                       <template #icon>
                         <n-icon>
@@ -334,6 +357,13 @@
                 </n-button>
                 <n-button
                   size="small"
+                  @click="openApplyLegionModal"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                >
+                  批量申请俱乐部
+                </n-button>
+                <n-button
+                  size="small"
                   @click="batchStudy"
                   :disabled="isRunning || selectedTokens.length === 0"
                 >
@@ -349,6 +379,13 @@
                   "
                 >
                   一键竞技场战斗3次
+                </n-button>
+                <n-button
+                  size="small"
+                  @click="store_syncpurchaseconfig"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                >
+                  一键配置黑市清单
                 </n-button>
                 <n-button
                   size="small"
@@ -370,6 +407,26 @@
                   :disabled="isRunning || selectedTokens.length === 0"
                 >
                   一键灯神扫荡
+                </n-button>
+                <n-popselect
+                  :value="campChallengeMode"
+                  :options="campChallengeModeOptions"
+                  trigger="click"
+                  @update:value="onCampChallengeModeChange"
+                >
+                  <n-button
+                    size="small"
+                    :disabled="isRunning || selectedTokens.length === 0"
+                  >
+                    营地挑战({{ campChallengeModeLabel }})
+                  </n-button>
+                </n-popselect>
+                <n-button
+                  size="small"
+                  @click="batchXuanwuBlessing"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                >
+                  一键玄武赐福
                 </n-button>
               </n-space>
             </n-tab-pane>
@@ -418,10 +475,68 @@
                 >
                   一键购买梦境商品
                 </n-button>
+                <n-popselect
+                  :value="footballPick"
+                  :options="footballPickOptions"
+                  trigger="click"
+                  @update:value="onFootballPickChange"
+                >
+                  <n-button
+                    size="small"
+                    :disabled="isRunning || selectedTokens.length === 0"
+                  >
+                    一键竞猜({{ footballPickLabel }})
+                  </n-button>
+                </n-popselect>
+                <n-button
+                  size="small"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                  @click="batchApexGuess()"
+                >
+                  逐鹿盐山竞猜
+                </n-button>
+              </n-space>
+            </n-tab-pane>
+            <n-tab-pane name="baoku" tab="宝库">
+              <n-space>
+                <n-button
+                  size="small"
+                  @click="batchbaoku13"
+                  :disabled="
+                    isRunning ||
+                    selectedTokens.length === 0 ||
+                    !isbaokuActivityOpen
+                  "
+                >
+                  一键宝库前3层
+                </n-button>
+                <n-button
+                  size="small"
+                  @click="batchbaoku45"
+                  :disabled="
+                    isRunning ||
+                    selectedTokens.length === 0 ||
+                    !isbaokuActivityOpen
+                  "
+                >
+                  一键宝库4,5层
+                </n-button>
               </n-space>
             </n-tab-pane>
             <n-tab-pane name="weirdTower" tab="怪异塔">
               <n-space>
+                <n-input-number
+                  v-model:value="weirdTowerMaxClimb"
+                  @update:value="saveWeirdTowerLimit"
+                  class="weird-tower-count-input"
+                  size="small"
+                  :min="1"
+                  :precision="0"
+                  :show-button="false"
+                  placeholder="次数"
+                  :disabled="isRunning"
+                />
+                <span class="weird-tower-count-unit">次</span>
                 <n-button
                   size="small"
                   @click="climbWeirdTower"
@@ -504,6 +619,13 @@
                   :disabled="isRunning || selectedTokens.length === 0"
                 >
                   批量招募
+                </n-button>
+                <n-button
+                  size="small"
+                  @click="openRedeemCodeModal"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                >
+                  一键使用兑换码
                 </n-button>
                 <n-button
                   size="small"
@@ -594,7 +716,17 @@
                 </n-button>
               </n-space>
             </n-tab-pane>
-          </n-tabs>
+          <n-tab-pane name="extensions" tab="扩展功能"><n-space><n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="weeklyFreeGift">领取每周免费礼包</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="mondayFreeGift">领取周一免费礼包</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="gachaFreeDrawWeekly">每周免费抽卡</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="batchPkRoomAppoint">PK房间预约</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="runLegacyBlackMarketPurchaseList">黑市购买清单</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="charge_claimaddup_rewards">积分好礼领取</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="claim_recruit_welfare">周免费礼领取</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="claim_weird_tower_all">怪异塔奖励领取</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="batchOpenFragmentPacks">开碎片礼包</n-button>
+<n-button size="small" :disabled="isRunning || selectedTokens.length === 0" @click="batchClaimBoxWeeklyRewards">宝箱达标奖励</n-button></n-space></n-tab-pane>
+</n-tabs>
         </n-card>
       </div>
 
@@ -633,13 +765,13 @@
           <n-progress
             type="line"
             :percentage="currentProgress"
-            :indicator-placement="'inside'"
+            indicator-placement="inside"
             processing
           />
           <div class="log-container" ref="logContainer">
             <div
-              v-for="(log, index) in filteredLogs"
-              :key="index"
+              v-for="(log, logIndex) in filteredLogs"
+              :key="logIndex"
               class="log-item"
               :class="log.type"
             >
@@ -722,7 +854,8 @@
               ><n-switch v-model:value="currentSettings.payRecruit" />
             </div>
           </div>
-          <div class="setting-item" style="margin-top: 12px">
+        </div>
+        <div class="setting-item" style="margin-top: 12px">
             <label class="setting-label">黑市购买清单（仅黑市周生效）</label>
             <n-checkbox-group v-model:value="currentSettings.blackMarketPurchaseList">
               <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px">
@@ -734,8 +867,7 @@
               </div>
             </n-checkbox-group>
           </div>
-        </div>
-        <div class="modal-actions" style="margin-top: 20px; text-align: right">
+<div class="modal-actions" style="margin-top: 20px; text-align: right">
           <n-button type="primary" @click="saveSettings">保存设置</n-button>
         </div>
       </div>
@@ -820,7 +952,8 @@
               ><n-switch v-model:value="currentTemplate.payRecruit" />
             </div>
           </div>
-          <div class="setting-item" style="margin-top: 12px">
+        </div>
+        <div class="setting-item" style="margin-top: 12px">
             <label class="setting-label">黑市购买清单（仅黑市周生效）</label>
             <n-checkbox-group v-model:value="currentTemplate.blackMarketPurchaseList">
               <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px">
@@ -832,8 +965,7 @@
               </div>
             </n-checkbox-group>
           </div>
-        </div>
-        <div class="modal-actions" style="margin-top: 20px; text-align: right">
+<div class="modal-actions" style="margin-top: 20px; text-align: right">
           <n-button
             @click="showTaskTemplateModal = false"
             style="margin-right: 12px"
@@ -923,8 +1055,13 @@
               style="margin-top: 8px"
             >
               <n-grid :cols="2" :x-gap="12" :y-gap="8">
-                <n-grid-item v-for="token in sortedTokens" :key="token.id">
-                  <n-checkbox :value="token.id">{{ token.name }}</n-checkbox>
+                <n-grid-item
+                  v-for="gameToken in sortedTokens"
+                  :key="gameToken.id"
+                >
+                  <n-checkbox :value="gameToken.id">{{
+                    gameToken.name
+                  }}</n-checkbox>
                 </n-grid-item>
               </n-grid>
             </n-checkbox-group>
@@ -1474,6 +1611,56 @@
       </div>
     </n-modal>
 
+    <!-- Redeem Code Modal -->
+    <n-modal
+      v-model:show="showRedeemCodeModal"
+      preset="card"
+      title="一键使用兑换码"
+      style="width: 90%; max-width: 560px"
+    >
+      <div class="settings-content">
+        <n-alert type="info" show-icon style="margin-bottom: 12px">
+          每行填写一个兑换码，也支持用空格、逗号或分号分隔。执行时会先读取角色已兑换记录，已使用的兑换码会自动跳过。
+        </n-alert>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label class="setting-label">兑换码列表</label>
+            <n-input
+              v-model:value="batchSettings.cdkCodes"
+              type="textarea"
+              placeholder="例如：&#10;vip666&#10;VIP666&#10;happy666"
+              :autosize="{ minRows: 7, maxRows: 14 }"
+            />
+          </div>
+          <div class="setting-item">
+            <label class="setting-label">平台类型</label>
+            <n-input
+              v-model:value="batchSettings.cdkPlatformType"
+              placeholder="默认 h5"
+            />
+          </div>
+        </div>
+        <div class="modal-actions" style="margin-top: 20px; text-align: right">
+          <n-button
+            @click="showRedeemCodeModal = false"
+            style="margin-right: 12px"
+          >
+            取消
+          </n-button>
+          <n-button @click="saveRedeemCodeConfig" style="margin-right: 12px">
+            保存配置
+          </n-button>
+          <n-button
+            type="primary"
+            @click="executeRedeemCodes"
+            :disabled="!batchSettings.cdkCodes?.trim()"
+          >
+            开始兑换
+          </n-button>
+        </div>
+      </div>
+    </n-modal>
+
     <!-- Dream Buy Modal -->
     <n-modal
       v-model:show="showDreamBuyModal"
@@ -1504,12 +1691,15 @@
               {{ merchant.name }}
             </div>
             <n-grid :cols="3" :x-gap="12" :y-gap="8">
-              <n-grid-item v-for="(item, index) in merchant.items" :key="index">
+              <n-grid-item
+                v-for="(item, itemIndex) in merchant.items"
+                :key="itemIndex"
+              >
                 <n-checkbox
-                  :value="`${id}-${index}`"
-                  :checked="dreamBuyList.includes(`${id}-${index}`)"
+                  :value="`${id}-${itemIndex}`"
+                  :checked="dreamBuyList.includes(`${id}-${itemIndex}`)"
                   @update:checked="
-                    (checked) => toggleDreamItem(`${id}-${index}`, checked)
+                    (checked) => toggleDreamItem(`${id}-${itemIndex}`, checked)
                   "
                 >
                   {{ item }}
@@ -1527,6 +1717,95 @@
           <n-button type="primary" @click="saveDreamBuyConfig"
             >保存配置</n-button
           >
+        </div>
+      </div>
+    </n-modal>
+
+    <!-- Black Market Purchase Modal -->
+    <n-modal
+      v-model:show="showBlackMarketPurchaseModal"
+      preset="card"
+      title="黑市采购清单配置"
+      style="width: 90%; max-width: 760px"
+    >
+      <div class="settings-content">
+        <n-alert type="info" show-icon style="margin-bottom: 12px">
+          这里保存的是要下发到游戏服务器的黑市采购清单。每条填写 `itemId`
+          和折扣，折扣范围
+          1-10；保存后需手动执行“一键配置黑市清单”才会真正写入服务器。
+        </n-alert>
+
+        <div style="display: flex; gap: 12px; margin-bottom: 12px">
+          <n-button
+            size="small"
+            type="primary"
+            @click="addBlackMarketPurchaseItem"
+          >
+            新增条目
+          </n-button>
+          <n-button size="small" @click="resetBlackMarketPurchaseList">
+            恢复默认
+          </n-button>
+        </div>
+
+        <n-alert type="warning" show-icon style="margin-bottom: 12px">
+          优先从下拉框选择常用物品，系统会自动填入
+          `itemId`、备注和推荐折扣；如果下拉里没有，再手动填写 `itemId`。
+        </n-alert>
+
+        <div
+          v-for="(item, itemIndex) in blackMarketPurchaseList"
+          :key="`${itemIndex}-${item.itemId ?? 'new'}`"
+          style="
+            display: grid;
+            grid-template-columns: 220px 120px 120px 1fr 96px;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+          "
+        >
+          <n-select
+            :value="item.itemId"
+            :options="blackMarketItemOptions"
+            placeholder="选择常用物品"
+            clearable
+            filterable
+            @update:value="
+              (value) => applyBlackMarketCatalogItem(itemIndex, value)
+            "
+          />
+          <n-input-number
+            v-model:value="item.itemId"
+            placeholder="itemId"
+            :min="1"
+            :show-button="false"
+          />
+          <n-input-number
+            v-model:value="item.discount"
+            placeholder="折扣"
+            :min="1"
+            :max="10"
+          />
+          <n-input v-model:value="item.note" placeholder="备注（可选）" />
+          <n-button
+            type="error"
+            secondary
+            @click="removeBlackMarketPurchaseItem(itemIndex)"
+          >
+            删除
+          </n-button>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 20px; text-align: right">
+          <n-button
+            @click="showBlackMarketPurchaseModal = false"
+            style="margin-right: 12px"
+          >
+            取消
+          </n-button>
+          <n-button type="primary" @click="saveBlackMarketPurchaseConfig">
+            保存配置
+          </n-button>
         </div>
       </div>
     </n-modal>
@@ -1602,6 +1881,10 @@
             <span style="color: #6b7280">选中任务：</span>
             <span>{{ task.selectedTasks.length }} 个</span>
           </div>
+          <div v-if="task.lastRun" style="margin-bottom: 8px">
+            <span style="color: #6b7280">上次执行：</span>
+            <span>{{ new Date(task.lastRun).toLocaleString('zh-CN') }} · {{ formatTaskResult(task.lastResult) }}</span>
+          </div>
           <div style="display: flex; gap: 8px">
             <n-button size="tiny" @click="editTask(task)"> 编辑 </n-button>
             <n-button size="tiny" type="error" @click="deleteTask(task.id)">
@@ -1611,7 +1894,8 @@
               size="tiny"
               type="info"
               secondary
-              :loading="executingTaskIds.includes(task.id)"
+              :loading="executingTaskIds.includes(task.id) || task.lastResult?.running"
+              :disabled="task.lastResult?.running"
               @click="manualExecuteTask(task)"
             >
               立即执行
@@ -1681,7 +1965,7 @@
               >
                 <h4>未来5次执行时间：</h4>
                 <ul>
-                  <li v-for="(run, index) in cronNextRuns" :key="index">
+                  <li v-for="(run, runIndex) in cronNextRuns" :key="runIndex">
                     {{ run }}
                   </li>
                 </ul>
@@ -1782,8 +2066,13 @@
 
             <n-checkbox-group v-model:value="taskForm.selectedTokens">
               <n-grid :cols="2" :x-gap="12" :y-gap="8">
-                <n-grid-item v-for="token in sortedTokens" :key="token.id">
-                  <n-checkbox :value="token.id">{{ token.name }}</n-checkbox>
+                <n-grid-item
+                  v-for="gameToken in sortedTokens"
+                  :key="gameToken.id"
+                >
+                  <n-checkbox :value="gameToken.id">{{
+                    gameToken.name
+                  }}</n-checkbox>
                 </n-grid-item>
               </n-grid>
             </n-checkbox-group>
@@ -1834,15 +2123,15 @@
 
                 <n-tab-pane
                   v-if="
-                    groupedAvailableTasks['other'] &&
-                    groupedAvailableTasks['other'].length > 0
+                    groupedAvailableTasks.other &&
+                    groupedAvailableTasks.other.length > 0
                   "
                   name="other"
                   tab="其他"
                 >
                   <n-grid :cols="2" :x-gap="12" :y-gap="8">
                     <n-grid-item
-                      v-for="task in groupedAvailableTasks['other']"
+                      v-for="task in groupedAvailableTasks.other"
                       :key="task.value"
                     >
                       <n-checkbox :value="task.value">{{
@@ -1853,6 +2142,21 @@
                 </n-tab-pane>
               </n-tabs>
             </n-checkbox-group>
+          </div>
+          <div
+            v-if="taskForm.selectedTasks.includes('batchApplyLegion')"
+            class="setting-item"
+          >
+            <label class="setting-label">目标俱乐部ID</label>
+            <n-input-number
+              v-model:value="taskForm.legionApplyTargetId"
+              placeholder="请输入目标俱乐部ID"
+              :min="1"
+              clearable
+            />
+            <div style="font-size: 12px; color: #86909c">
+              定时执行“批量申请俱乐部”时会对所有选中账号申请这个俱乐部。
+            </div>
           </div>
         </div>
         <div class="modal-actions" style="margin-top: 20px; text-align: right">
@@ -2357,6 +2661,132 @@
       </div>
     </n-modal>
 
+    <!-- Batch Apply Legion Modal -->
+    <n-modal
+      v-model:show="showApplyLegionModal"
+      preset="card"
+      title="批量申请俱乐部"
+      style="width: 90%; max-width: 720px"
+    >
+      <div class="settings-content">
+        <div class="settings-grid" style="display: block">
+          <div
+            style="
+              margin-bottom: 16px;
+              display: flex;
+              align-items: center;
+              gap: 12px;
+              flex-wrap: wrap;
+            "
+          >
+            <span style="font-size: 16px">俱乐部ID:</span>
+            <n-input-number
+              v-model:value="applyLegionTargetId"
+              placeholder="请输入俱乐部ID"
+              :min="1"
+              clearable
+              style="width: 180px"
+            />
+            <n-button
+              @click="fetchApplyLegionTargetInfo"
+              :loading="applyLegionLoading"
+            >
+              查询俱乐部
+            </n-button>
+            <n-button
+              type="primary"
+              @click="handleBatchApplyLegion"
+              :disabled="!applyLegionPreview?.id || isRunning"
+            >
+              发起申请
+            </n-button>
+          </div>
+
+          <div
+            style="
+              margin-bottom: 12px;
+              padding: 12px;
+              border-radius: 8px;
+              background: #f8f9fa;
+              border: 1px solid #e9ecef;
+              color: #666;
+            "
+          >
+            仅会对当前未加入俱乐部的账号发申请，已加入任意俱乐部的账号会自动跳过。
+          </div>
+
+          <n-alert
+            v-if="applyLegionError"
+            type="error"
+            :show-icon="true"
+            style="margin-bottom: 16px"
+          >
+            {{ applyLegionError }}
+          </n-alert>
+
+          <div
+            v-if="applyLegionPreview"
+            style="
+              display: flex;
+              gap: 16px;
+              align-items: flex-start;
+              padding: 16px;
+              border: 1px solid #e5e7eb;
+              border-radius: 10px;
+              background: white;
+            "
+          >
+            <img
+              :src="applyLegionPreview.logo || ''"
+              alt="俱乐部头像"
+              style="
+                width: 64px;
+                height: 64px;
+                border-radius: 50%;
+                object-fit: cover;
+                background: #f3f4f6;
+                border: 1px solid #e5e7eb;
+              "
+            />
+            <div style="flex: 1; min-width: 0">
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  gap: 12px;
+                  flex-wrap: wrap;
+                  margin-bottom: 8px;
+                "
+              >
+                <div style="font-size: 18px; font-weight: 600">
+                  {{ applyLegionPreview.name }}
+                </div>
+                <n-tag type="info">ID: {{ applyLegionPreview.id }}</n-tag>
+              </div>
+              <div
+                style="display: flex; gap: 16px; flex-wrap: wrap; color: #666"
+              >
+                <span>等级: {{ applyLegionPreview.level || 0 }}</span>
+                <span>成员数: {{ applyLegionPreview.memberCount || 0 }}</span>
+                <span v-if="applyLegionPreview.chairmanName">
+                  会长: {{ applyLegionPreview.chairmanName }}
+                </span>
+              </div>
+              <div
+                v-if="applyLegionPreview.notice"
+                style="margin-top: 10px; color: #666; line-height: 1.5"
+              >
+                公告: {{ applyLegionPreview.notice }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions" style="margin-top: 20px; text-align: right">
+          <n-button @click="showApplyLegionModal = false">关闭</n-button>
+        </div>
+      </div>
+    </n-modal>
+
     <!-- Token Group Management Modal -->
     <n-modal
       v-model:show="showGroupManageModal"
@@ -2389,21 +2819,21 @@
               <span style="font-size: 12px">选择颜色:</span>
               <div style="display: flex; gap: 6px">
                 <div
-                  v-for="color in groupColors"
-                  :key="color"
+                  v-for="slotColor in groupColors"
+                  :key="slotColor"
                   :style="{
                     width: '24px',
                     height: '24px',
-                    backgroundColor: color,
+                    backgroundColor: slotColor,
                     borderRadius: '4px',
                     border:
-                      newGroupColor === color
+                      newGroupColor === slotColor
                         ? '3px solid #000'
                         : '2px solid #ddd',
                     cursor: 'pointer',
                     transition: 'transform 0.2s',
                   }"
-                  @click="newGroupColor = color"
+                  @click="newGroupColor = slotColor"
                   @mouseover="$event.target.style.transform = 'scale(1.1)'"
                   @mouseleave="$event.target.style.transform = 'scale(1)'"
                 />
@@ -2443,8 +2873,13 @@
             <div style="max-height: 150px; overflow-y: auto">
               <n-checkbox-group v-model:value="newGroupSelectedTokens">
                 <n-grid :cols="3" :x-gap="12" :y-gap="8">
-                  <n-grid-item v-for="token in sortedTokens" :key="token.id">
-                    <n-checkbox :value="token.id">{{ token.name }}</n-checkbox>
+                  <n-grid-item
+                    v-for="gameToken in sortedTokens"
+                    :key="gameToken.id"
+                  >
+                    <n-checkbox :value="gameToken.id">{{
+                      gameToken.name
+                    }}</n-checkbox>
                   </n-grid-item>
                 </n-grid>
               </n-checkbox-group>
@@ -2498,20 +2933,20 @@
                   />
                   <div style="display: flex; gap: 6px; align-items: center">
                     <div
-                      v-for="color in groupColors"
-                      :key="color"
+                      v-for="slotColor in groupColors"
+                      :key="slotColor"
                       :style="{
                         width: '20px',
                         height: '20px',
-                        backgroundColor: color,
+                        backgroundColor: slotColor,
                         borderRadius: '4px',
                         border:
-                          editingGroupColor === color
+                          editingGroupColor === slotColor
                             ? '3px solid #000'
                             : '2px solid #ddd',
                         cursor: 'pointer',
                       }"
-                      @click="editingGroupColor = color"
+                      @click="editingGroupColor = slotColor"
                     />
                   </div>
                   <n-button
@@ -2651,77 +3086,76 @@
 </template>
 
 <script setup>
-// Import required dependencies
-import {
-  ref,
-  computed,
-  nextTick,
-  reactive,
-  watch,
-  onMounted,
-  onBeforeUnmount,
-  h,
-} from "vue";
-import { useServerTokenStore as useTokenStore } from '@/stores/serverTokenStore';
-import { $emit } from "@/stores/events/index.ts";
-import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
-import { preloadQuestions } from "@/utils/studyQuestionsFromJSON.js";
-import { useMessage } from "naive-ui";
 import { Settings } from "@vicons/ionicons5";
 
+import { useMessage } from "naive-ui";
+// Import required dependencies
+import {
+  computed,
+  h,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  watch,
+} from "vue";
+import { $emit } from "@/stores/events/index.ts";
+import { useServerTokenStore as useTokenStore } from "@/stores/serverTokenStore";
+import { settingsApi, scheduledTasksApi } from "@/api/serverApi";
 // Import batch task modules
 import {
+  addTaskSaveLog,
+  availableTasks,
+  bossTimesOptions,
   // Constants
   boxTypeOptions,
-  fishTypeOptions,
-  formationOptions,
-  bossTimesOptions,
-  availableTasks,
-  FISH_TARGET,
-  ARENA_TARGET,
-  taskColumns,
-  defaultSettings,
-  defaultBatchSettings,
-  defaultTemplate,
-  defaultTaskForm,
-  defaultHelperSettings,
-  // Cron utilities
-  validateCronField,
-  validateCronExpression,
-  parseCronField,
-  calculateNextRuns,
-  calculateNextExecutionTime,
-  formatTimeDifference,
-  matchesCronExpression,
-  // Connection manager
-  createConnectionManager,
-  getActivityStatus,
-  getTodayStartSec,
-  isTodayAvailable,
   calculateMonthProgress,
-  pickArenaTargetId,
-  // Log utilities
-  createLogManager,
-  addTaskSaveLog,
+  calculateNextExecutionTime,
+  calculateNextRuns,
+  createTasksApex,
+  createTasksArena,
+  createTasksBottle,
+  createTasksCampChallenge,
+  createTasksDungeon,
+  createTasksFootball,
   // Task factories
   createTasksHangUp,
-  createTasksBottle,
-  createTasksTower,
   createTasksItem,
-  createTasksDungeon,
-  createTasksArena,
-  createTasksStore,
   createTasksLegacy,
+  createTasksExtraStore,
+  createTasksExtraItem,
+  createTasksStore,
+  createTasksTower,
+  createTasksXuanwuBlessing,
+  fishTypeOptions,
+  formationOptions,
+  formatTimeDifference,
+  getTodayStartSec,
+  isTodayAvailable,
+  matchesCronExpression,
+  pickArenaTargetId,
+  validateCronExpression,
 } from "@/utils/batch";
+import {
+  blackMarketItemCatalog,
+  createBlackMarketPurchaseEntry,
+  defaultBlackMarketPurchaseList,
+  normalizeBlackMarketPurchaseList,
+} from "@/utils/batch/blackMarketConfig";
+import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
+import { goldItemsConfig, merchantConfig } from "@/utils/dreamConstants";
 
-import { merchantConfig, goldItemsConfig } from "@/utils/dreamConstants";
-import { settingsApi, scheduledTasksApi } from '@/api/serverApi';
+import { isSameGameValue } from "@/utils/gameValue.js";
+
+import { DEFAULT_WEIRD_TOWER_MAX_CLIMB } from "@/utils/towerClimbLimit.js";
 
 // Initialize token store, message service, and task runner
 const tokenStore = useTokenStore();
 const gameTokens = computed(() => tokenStore.gameTokens);
 const tokenGroups = computed(() => tokenStore.tokenGroups);
 const message = useMessage();
+const weirdTowerMaxClimb = ref(DEFAULT_WEIRD_TOWER_MAX_CLIMB);
 
 // 排序配置（从localStorage读取，与TokenImport共享）
 const savedSortConfig = localStorage.getItem("tokenSortConfig");
@@ -2735,22 +3169,6 @@ const sortConfig = ref(
 );
 
 // 计算属性 - 从gameData中获取塔相关信息
-const evoTowerInfo = computed(() => {
-  const data = tokenStore.gameData?.evoTowerInfo || null;
-  return data;
-});
-
-const weirdTowerData = computed(() => {
-  return evoTowerInfo.value?.evoTower || null;
-});
-
-const currentTowerId = computed(() => {
-  return weirdTowerData.value?.towerId || 0;
-});
-
-const towerEnergy = computed(() => {
-  return weirdTowerData.value?.energy || 0;
-});
 
 // 排序后的游戏角色Token列表
 const sortedTokens = computed(() => {
@@ -2817,6 +3235,10 @@ const tokens = computed(() => tokenStore.gameTokens);
 const ismengjingActivityOpen = computed(() => {
   const day = new Date().getDay();
   return day === 0 || day === 1 || day === 3 || day === 4;
+});
+const isbaokuActivityOpen = computed(() => {
+  const day = new Date().getDay();
+  return !isSameGameValue(day, 1) && !isSameGameValue(day, 2);
 });
 const isarenaActivityOpen = computed(() => {
   const hour = new Date().getHours();
@@ -2922,7 +3344,7 @@ const shouldStop = ref(false);
 // Token分组管理状态
 // =====================
 const showGroupManageModal = ref(false);
-const showGroupSelectModal = ref(false);
+
 const selectedGroups = ref([]); // 选中的分组ID列表
 const newGroupName = ref("");
 const newGroupColor = ref("#1677ff");
@@ -2950,15 +3372,14 @@ const warGuessList = ref([]);
 const warGuessLoading = ref(false);
 const warGuessCoin = ref(20);
 const selectedWarGuessLegionId = ref(null);
-const currentGuessCount = ref(0);
 
 const formatPower = (power) => {
   if (!power) return "0";
   if (power >= 100000000) {
-    return (power / 100000000).toFixed(2) + "亿";
+    return `${(power / 100000000).toFixed(2)}亿`;
   }
   if (power >= 10000) {
-    return (power / 10000).toFixed(2) + "万";
+    return `${(power / 10000).toFixed(2)}万`;
   }
   return power.toString();
 };
@@ -3072,7 +3493,7 @@ const fetchWarGuessRank = async () => {
     }
   } catch (error) {
     console.error("Fetch rank error:", error);
-    message.error("获取月赛助威数据失败: " + error.message);
+    message.error(`获取月赛助威数据失败: ${error.message}`);
     addLog({
       time: new Date().toLocaleTimeString(),
       message: `获取月赛助威数据失败: ${error.message}`,
@@ -3092,6 +3513,86 @@ const handleWarGuessCheer = async () => {
   showWarGuessModal.value = false;
   // Call the batch function
   await batchWarGuessCheer(selectedWarGuessLegionId.value, warGuessCoin.value);
+};
+
+// ======================
+// Batch Apply Legion Feature
+// ======================
+const showApplyLegionModal = ref(false);
+const applyLegionTargetId = ref(null);
+const applyLegionPreview = ref(null);
+const applyLegionLoading = ref(false);
+const applyLegionError = ref("");
+
+const openApplyLegionModal = () => {
+  showApplyLegionModal.value = true;
+  applyLegionError.value = "";
+  applyLegionPreview.value = null;
+};
+
+const fetchApplyLegionTargetInfo = async () => {
+  if (selectedTokens.value.length === 0) {
+    message.warning("请先选择一个账号用于查询俱乐部");
+    return;
+  }
+
+  if (!applyLegionTargetId.value) {
+    message.warning("请先输入俱乐部ID");
+    return;
+  }
+
+  const tokenId = selectedTokens.value[0];
+  const token = tokens.value.find((t) => t.id === tokenId);
+
+  applyLegionLoading.value = true;
+  applyLegionError.value = "";
+  applyLegionPreview.value = null;
+
+  try {
+    addLog({
+      time: new Date().toLocaleTimeString(),
+      message: `正在使用 ${token.name} 查询俱乐部 ${applyLegionTargetId.value}...`,
+      type: "info",
+    });
+
+    const status = tokenStore.getWebSocketStatus(tokenId);
+    if (status !== "connected") {
+      tokenStore.createWebSocketConnection(tokenId, token.token, token.wsUrl);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    applyLegionPreview.value = await queryLegionById(
+      tokenId,
+      applyLegionTargetId.value,
+    );
+
+    addLog({
+      time: new Date().toLocaleTimeString(),
+      message: `已查询到目标俱乐部: ${applyLegionPreview.value.name} (${applyLegionPreview.value.id})`,
+      type: "success",
+    });
+  } catch (error) {
+    console.error("Fetch legion info error:", error);
+    applyLegionError.value = error.message || "查询俱乐部失败";
+    addLog({
+      time: new Date().toLocaleTimeString(),
+      message: `查询俱乐部失败: ${applyLegionError.value}`,
+      type: "error",
+    });
+    message.error(applyLegionError.value);
+  } finally {
+    applyLegionLoading.value = false;
+  }
+};
+
+const handleBatchApplyLegion = async () => {
+  if (!applyLegionPreview.value?.id) {
+    message.warning("请先查询并确认目标俱乐部");
+    return;
+  }
+
+  showApplyLegionModal.value = false;
+  await batchApplyLegion(applyLegionPreview.value.id);
 };
 
 // Settings Modal State
@@ -3193,11 +3694,22 @@ for (const merchantId in goldItemsConfig) {
   });
 }
 
+const createDefaultBlackMarketPurchaseList = () =>
+  defaultBlackMarketPurchaseList.map((item) => ({ ...item }));
+
+const blackMarketItemOptions = blackMarketItemCatalog.map((item) => ({
+  label: `${item.label} (${item.itemId})`,
+  value: item.itemId,
+}));
+
 const batchSettings = reactive({
   dreamPurchaseList: defaultDreamPurchaseList,
+  blackMarketPurchaseList: createDefaultBlackMarketPurchaseList(),
   boxCount: 100,
   fishCount: 100,
   recruitCount: 100,
+  cdkCodes: "",
+  cdkPlatformType: "h5",
   defaultBoxType: 2001,
   defaultFishType: 1,
   targetBoxPoints: 1000,
@@ -3208,7 +3720,7 @@ const batchSettings = reactive({
   commandDelay: 500, // 命令间延迟
   taskDelay: 500, // 任务间延迟
   actionDelay: 300, // 一般操作延迟（开箱、钓鱼、招募等）
-  battleDelay: 500, // 战斗延迟（竞技场等）
+  battleDelay: 500, // 战斗延迟（宝库、竞技场等）
   refreshDelay: 1000, // 刷新延迟
   longDelay: 3000, // 长延迟（功法赠送等）
   // 其他配置
@@ -3221,10 +3733,11 @@ const batchSettings = reactive({
   refreshInterval: 360, // 分钟
 });
 
-// Load batch settings from server
+// Load settings from the user-scoped server store
 const loadBatchSettings = async () => {
   try {
     const saved = await settingsApi.get("batchSettings");
+    if (saved?.weirdTowerMaxClimb) weirdTowerMaxClimb.value = saved.weirdTowerMaxClimb;
     if (saved) {
       Object.assign(batchSettings, saved);
     }
@@ -3233,19 +3746,27 @@ const loadBatchSettings = async () => {
   }
 };
 
-// Save batch settings to server
-const saveBatchSettings = () => {
+// Persist settings before displaying success
+const saveBatchSettings = async () => {
   try {
-    settingsApi.set("batchSettings", batchSettings);
+    await settingsApi.set("batchSettings", { ...batchSettings, weirdTowerMaxClimb: weirdTowerMaxClimb.value });
     message.success("定时批量任务设置已保存");
     showBatchSettingsModal.value = false;
+    return true;
   } catch (error) {
     console.error("Failed to save batch settings:", error);
     message.error("保存设置失败");
+    return false;
   }
 };
 
 // Open batch settings modal
+const saveWeirdTowerLimit = async value => {
+  if (!Number.isSafeInteger(value) || value < 1) return;
+  try { await settingsApi.set("batchSettings", { ...batchSettings, weirdTowerMaxClimb: value }); }
+  catch (error) { message.error("保存爬塔次数失败：" + error.message); }
+};
+
 const openBatchSettings = async () => {
   await loadBatchSettings();
   showBatchSettingsModal.value = true;
@@ -3278,6 +3799,7 @@ const avatarLoadError = ref(false);
 const scheduledTasks = ref([]); // List of all scheduled tasks
 const showTaskModal = ref(false); // Control the visibility of the add/edit task modal
 const showTasksModal = ref(false); // Control the visibility of the tasks list modal
+const showRedeemCodeModal = ref(false); // Control the visibility of the redeem code modal
 const editingTask = ref(null); // Currently editing task
 const taskForm = reactive({
   name: "", // Task name
@@ -3286,6 +3808,7 @@ const taskForm = reactive({
   cronExpression: "", // Cron expression for complex scheduling
   selectedTokens: [], // Selected token IDs
   selectedTasks: [], // Selected task function names
+  legionApplyTargetId: null, // Target legion for batchApplyLegion
   enabled: true, // Whether the task is enabled
 });
 
@@ -3301,11 +3824,17 @@ const taskGroupDefinitions = [
       "resetBottles",
       "batchlingguanzi",
       "batchclubsign",
+      "batchApplyLegion",
       "batchStudy",
       "batcharenafight",
+      "batchCampChallenge",
+      "batchCampChallengePet",
+      "batchCampClaimTasks",
+      "store_syncpurchaseconfig",
       "store_purchase",
       "collection_claimfreereward",
       "batchGenieSweep",
+      "batchXuanwuBlessing",
     ],
   },
   {
@@ -3319,6 +3848,7 @@ const taskGroupDefinitions = [
       "batchBuyDreamItems",
     ],
   },
+  { name: "baoku", label: "宝库", tasks: ["batchbaoku13", "batchbaoku45"] },
   {
     name: "weirdTower",
     label: "怪异塔",
@@ -3338,9 +3868,8 @@ const taskGroupDefinitions = [
       "batchClaimBoxPointReward",
       "batchFish",
       "batchRecruit",
+      "batchRedeemCodes",
       "legion_storebuygoods",
-      "batchOpenFragmentPacks",
-      "batchClaimBoxWeeklyRewards",
     ],
   },
   {
@@ -3353,11 +3882,7 @@ const taskGroupDefinitions = [
     label: "月度",
     tasks: ["batchTopUpFish", "batchTopUpArena"],
   },
-  {
-    name: "weekly",
-    label: "周常",
-    tasks: ["weeklyFreeGift", "mondayFreeGift", "gachaFreeDrawWeekly", "batchPkRoomAppoint", "blackMarketPurchaseList", "charge_claimaddup_rewards", "claim_recruit_welfare", "claim_weird_tower_all"],
-  },
+{ name: "extensions", label: "扩展任务", tasks: ["weeklyFreeGift","mondayFreeGift","gachaFreeDrawWeekly","batchPkRoomAppoint","blackMarketPurchaseList","charge_claimaddup_rewards","claim_recruit_welfare","claim_weird_tower_all","batchOpenFragmentPacks","batchClaimBoxWeeklyRewards"] },
 ];
 
 // 计算属性，根据 taskGroupDefinitions 将 availableTasks 分组
@@ -3375,23 +3900,18 @@ const groupedAvailableTasks = computed(() => {
     (task) => !groupedTaskValues.includes(task.value),
   );
   if (otherTasks.length > 0) {
-    groups["other"] = otherTasks;
+    groups.other = otherTasks;
   }
 
   return groups;
 });
 
-const availableTaskValues = new Set(availableTasks.map((task) => task.value));
-const filterAvailableTaskNames = (taskNames) =>
-  (Array.isArray(taskNames) ? taskNames : []).filter((taskName) =>
-    availableTaskValues.has(taskName),
-  );
-
 // Cron表达式解析相关变量
+const availableTaskValues = new Set(availableTasks.map(task => task.value));
+const filterAvailableTaskNames = names => Array.isArray(names) ? names.filter(name => availableTaskValues.has(name)) : [];
+
 const cronValidation = ref({ valid: true, message: "" });
 const cronNextRuns = ref([]);
-
-// 注: availableTasks, taskColumns 已从 @/utils/batch 导入
 
 // ======================
 // Scheduled Tasks Storage
@@ -3401,36 +3921,16 @@ const cronNextRuns = ref([]);
 const executingTaskIds = ref([]);
 
 // Manual execute task
-const manualExecuteTask = async (task) => {
-  if (executingTaskIds.value.includes(task.id)) return;
+const manualExecuteTask = async task=>{if(executingTaskIds.value.includes(task.id))return;executingTaskIds.value.push(task.id);try{const result=await scheduledTasksApi.run(task.id);message.success(result.msg||"任务已交给服务器执行");await loadScheduledTasks();}catch(error){message.error(error.response?.data?.error||error.message);}finally{executingTaskIds.value=executingTaskIds.value.filter(id=>id!==task.id);}};
 
-  // Reset stop flag if not running, to allow manual execution
-  if (!isRunning.value && shouldStop.value) {
-    shouldStop.value = false;
-  }
-
-  executingTaskIds.value.push(task.id);
-  try {
-    message.info(`开始执行任务: ${task.name}`);
-    await executeScheduledTask(task);
-    message.success(`任务 ${task.name} 执行完成`);
-  } catch (e) {
-    console.error(`执行任务 ${task.name} 失败:`, e);
-    message.error(`任务 ${task.name} 执行失败`);
-  } finally {
-    executingTaskIds.value = executingTaskIds.value.filter(
-      (id) => id !== task.id,
-    );
-  }
-};
-
-// Load scheduled tasks from server
+// Load schedules from the backend
 const loadScheduledTasks = async () => {
   try {
     const saved = await scheduledTasksApi.getAll();
     const tasks = Array.isArray(saved) ? saved : [];
     scheduledTasks.value = tasks.map(t => ({
-      id: t.id,
+      ...t.settings,
+id: t.id,
       name: t.name,
       runType: t.settings?.runType || 'daily',
       runTime: t.settings?.runTime || null,
@@ -3447,9 +3947,7 @@ const loadScheduledTasks = async () => {
   }
 };
 
-// Save scheduled tasks to server
-const saveScheduledTasks = () => {
-};
+
 
 // Open task modal for adding new task
 const openTaskModal = () => {
@@ -3461,6 +3959,7 @@ const openTaskModal = () => {
     cronExpression: "",
     selectedTokens: [],
     selectedTasks: [],
+    legionApplyTargetId: null,
     enabled: true,
   });
   taskScheduleSelectedGroupIds.value = [];
@@ -3486,6 +3985,16 @@ const editTask = (task) => {
       minutes,
     );
   }
+  Object.assign(taskForm, {
+    name: "",
+    runType: "daily",
+    runTime: undefined,
+    cronExpression: "",
+    selectedTokens: [],
+    selectedTasks: [],
+    legionApplyTargetId: null,
+    enabled: true,
+  });
   Object.assign(taskForm, taskData);
   taskScheduleSelectedGroupIds.value = [];
   showTaskModal.value = true;
@@ -3525,6 +4034,11 @@ const parseCronExpression = (expression) => {
 
 // Save task (create or update)
 const saveTask = async () => {
+  if (taskForm.selectedTasks.includes('batchApplyLegion') &&
+      (!Number.isSafeInteger(Number(taskForm.legionApplyTargetId)) || Number(taskForm.legionApplyTargetId) <= 0)) {
+    message.warning('请填写有效的目标俱乐部ID');
+    return;
+  }
   if (!taskForm.name) {
     message.warning("请输入任务名称");
     return;
@@ -3585,6 +4099,7 @@ const saveTask = async () => {
     cronExpression: taskForm.runType === "cron" ? taskForm.cronExpression : "",
     selectedTokens: [...taskForm.selectedTokens],
     selectedTasks: [...taskForm.selectedTasks],
+legionApplyTargetId: taskForm.legionApplyTargetId,
     enabled: taskForm.enabled,
   };
 
@@ -3594,7 +4109,7 @@ const saveTask = async () => {
     if (editingTask.value) {
       await scheduledTasksApi.update(taskData.id, {
         name: taskData.name, cron: cronExpr, tokenIds: taskData.selectedTokens,
-        settings: { runType: taskData.runType, runTime: taskData.runTime, selectedTasks: taskData.selectedTasks },
+        settings: { runType: taskData.runType, runTime: taskData.runTime, selectedTasks: taskData.selectedTasks, legionApplyTargetId: taskData.legionApplyTargetId },
         enabled: taskData.enabled,
       });
       const index = scheduledTasks.value.findIndex(t => t.id === editingTask.value.id);
@@ -3602,14 +4117,15 @@ const saveTask = async () => {
     } else {
       const created = await scheduledTasksApi.create({
         name: taskData.name, cron: cronExpr, taskType: 'batch_daily', tokenIds: taskData.selectedTokens,
-        settings: { runType: taskData.runType, runTime: taskData.runTime, selectedTasks: taskData.selectedTasks },
+        settings: { runType: taskData.runType, runTime: taskData.runTime, selectedTasks: taskData.selectedTasks, legionApplyTargetId: taskData.legionApplyTargetId },
         enabled: taskData.enabled,
       });
       taskData.id = created.id || taskData.id;
       scheduledTasks.value.push(taskData);
     }
   } catch (e) {
-    console.error('保存定时任务失败:', e);
+    message.error("保存定时任务失败：" + (e.response?.data?.error || e.message));
+return;
   }
 
   // Add log entry for task save
@@ -3734,21 +4250,7 @@ const exportConfig = async () => {
         updatedAt: t.updatedAt,
       })),
       scheduledTasks: filteredScheduledTasks,
-      batchSettings: {
-        boxCount: batchSettings.boxCount,
-        fishCount: batchSettings.fishCount,
-        recruitCount: batchSettings.recruitCount,
-        defaultBoxType: batchSettings.defaultBoxType,
-        defaultFishType: batchSettings.defaultFishType,
-        commandDelay: batchSettings.commandDelay,
-        taskDelay: batchSettings.taskDelay,
-        actionDelay: batchSettings.actionDelay,
-        battleDelay: batchSettings.battleDelay,
-        refreshDelay: batchSettings.refreshDelay,
-        longDelay: batchSettings.longDelay,
-        maxActive: batchSettings.maxActive,
-        tokenListColumns: batchSettings.tokenListColumns,
-      },
+      batchSettings: { ...batchSettings, weirdTowerMaxClimb: weirdTowerMaxClimb.value },
       tokenSettings: tokenSettings,
     };
 
@@ -3774,100 +4276,42 @@ const exportConfig = async () => {
 };
 
 // Import tokens and scheduled tasks configuration
-const importConfig = async ({ file }) => {
+const importConfig = async (file) => {
   try {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const importData = JSON.parse(e.target.result);
-
-        // Validate structure
-        if (
-          !importData.version ||
-          !importData.tokens ||
-          !importData.scheduledTasks
-        ) {
-          message.error("无效的配置文件格式");
-          return;
-        }
-
-        let importedTokens = 0;
-        let importedTasks = 0;
-
-        // Import tokens
-        if (Array.isArray(importData.tokens)) {
-          importData.tokens.forEach((token) => {
-            // Check if token already exists
-            const exists = gameTokens.value.some(
-              (t) => t.token === token.token || t.id === token.id,
-            );
-            if (!exists && token.token) {
-              // Add new token directly to gameTokens (useLocalStorage)
-              gameTokens.value.push({
-                id:
-                  token.id ||
-                  "token_" + Date.now() + Math.random().toString(36).slice(2),
-                name: token.name || "",
-                token: token.token,
-                server: token.server || "",
-                wsUrl: token.wsUrl || null,
-                remark: token.remark || "",
-                importMethod: "import",
-                sourceUrl: token.sourceUrl || null,
-                upgradedToPermanent: true,
-                upgradedAt: token.upgradedAt || null,
-                updatedAt: token.updatedAt || new Date().toISOString(),
-                createdAt: new Date().toISOString(),
-                lastUsed: new Date().toISOString(),
-              });
-              importedTokens++;
-            }
-          });
-        }
-
-        // Import scheduled tasks
-        if (Array.isArray(importData.scheduledTasks)) {
-          importData.scheduledTasks.forEach((task) => {
-            // Check if task already exists
-            const exists = scheduledTasks.value.some((t) => t.id === task.id);
-            if (!exists && task.id) {
-              scheduledTasks.value.push(task);
-              importedTasks++;
-            }
-          });
-          saveScheduledTasks();
-        }
-
-        // Import batch settings if provided
-        if (importData.batchSettings) {
-          Object.assign(batchSettings, importData.batchSettings);
-          saveBatchSettings();
-        }
-
-        // Import token settings
-        if (Array.isArray(importData.tokenSettings)) {
-          importData.tokenSettings.forEach((item) => {
-            if (item.tokenId && item.settings) {
-              settingsApi.set(
-                `daily-settings:${item.tokenId}`,
-                item.settings,
-              );
-            }
-          });
-        }
-
-        message.success(
-          `导入成功: ${importedTokens} 个新账号, ${importedTasks} 个新定时任务`,
-        );
-      } catch (parseError) {
-        console.error("Parse error:", parseError);
-        message.error("解析配置文件失败");
+    const data = JSON.parse(await file.file.text());
+    if (!data.version || !Array.isArray(data.tokens) || !Array.isArray(data.scheduledTasks)) {
+      message.error('无效的配置文件格式'); return;
+    }
+    let importedTokens = 0, importedTasks = 0;
+    for (const token of data.tokens) {
+      if (token.token && !gameTokens.value.some(t => t.id === token.id || t.token === token.token)) {
+        await tokenStore.addToken({ ...token, name: token.name || '导入账号' });
+        importedTokens++;
       }
-    };
-    reader.readAsText(file.file);
+    }
+    for (const task of data.scheduledTasks) {
+      if (scheduledTasks.value.some(t => t.id === task.id || (t.name === task.name && JSON.stringify(t.selectedTokens) === JSON.stringify(task.selectedTokens)))) continue;
+      const [h, m] = (task.runTime || '').split(':').map(Number);
+      const cron = task.runType === 'daily' ? m + ' ' + h + ' * * *' : task.cronExpression;
+      const selectedTasks = filterAvailableTaskNames(task.selectedTasks);
+      if (!selectedTasks.length) continue;
+      await scheduledTasksApi.create({ name: task.name, cron, taskType: 'batch_daily', tokenIds: task.selectedTokens,
+        settings: { ...task, selectedTasks }, enabled: task.enabled !== false });
+      importedTasks++;
+    }
+    if (data.batchSettings) {
+      Object.assign(batchSettings, data.batchSettings);
+      if (data.batchSettings.weirdTowerMaxClimb) weirdTowerMaxClimb.value = data.batchSettings.weirdTowerMaxClimb;
+      await settingsApi.set('batchSettings', { ...batchSettings, weirdTowerMaxClimb: weirdTowerMaxClimb.value });
+    }
+    for (const item of data.tokenSettings || []) {
+      if (item.settings && gameTokens.value.some(t => t.id === item.tokenId)) await settingsApi.set('daily-settings:' + item.tokenId, item.settings);
+    }
+    await loadScheduledTasks();
+    message.success('导入成功: ' + importedTokens + ' 个新账号, ' + importedTasks + ' 个新定时任务');
   } catch (error) {
-    console.error("Import failed:", error);
-    message.error("导入失败: " + error.message);
+    await loadScheduledTasks();
+    message.error('导入未全部完成，已保存的项目会保留：' + (error.response?.data?.error || error.message));
   }
 };
 
@@ -3955,13 +4399,13 @@ const startCountdown = () => {
 // Scheduled Tasks Scheduler
 // ======================
 
-// Initialize scheduled tasks from server
+// Initialize backend schedules
 loadScheduledTasks();
 
 // Watch for changes to scheduledTasks for debugging
 watch(
   scheduledTasks,
-  (newVal) => {
+  () => {
     // Reset countdowns when tasks change
     nextExecutionTimes.value = {};
     taskCountdowns.value = {};
@@ -3982,150 +4426,21 @@ watch(
 );
 
 // Task scheduler variables - moved to component level scope
-const intervalId = ref(null);
-let lastTaskExecution = null;
+let taskStatusInterval = null;
 let healthCheckInterval = null;
 const pageLoadTime = Date.now();
 
 // Health check for the scheduler
-const healthCheck = () => {
-  // If interval is not running, restart it
-  if (!intervalId.value) {
-    console.error(
-      `[${new Date().toISOString()}] Task scheduler interval is not running, restarting...`,
-    );
-    startScheduler();
-  }
+const healthCheck = ()=>{if(batchSettings.enableRefresh&&batchSettings.refreshInterval>0&&(Date.now()-pageLoadTime)/60000>=batchSettings.refreshInterval&&!isRunning.value)window.location.reload();};
 
-  // Add a safety mechanism to prevent isRunning from being stuck
-  if (isRunning.value) {
-    const now = Date.now();
-    const tenMinutesAgo = now - 10 * 60 * 1000; // 10 minutes ago
-    if (lastTaskExecution && lastTaskExecution < tenMinutesAgo) {
-      console.error(
-        `[${new Date().toISOString()}] isRunning has been true for more than 10 minutes, resetting to false`,
-      );
-      isRunning.value = false;
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: "=== 检测到任务执行超时，已重置isRunning状态 ===",
-        type: "warning",
-      });
-    }
-  }
-
-  // Check for page refresh
-  if (batchSettings.enableRefresh && batchSettings.refreshInterval > 0) {
-    const elapsedMinutes = (Date.now() - pageLoadTime) / 1000 / 60;
-    if (elapsedMinutes >= batchSettings.refreshInterval) {
-      if (!isRunning.value) {
-        console.log(
-          `[${new Date().toISOString()}] Refreshing page as scheduled (Interval: ${batchSettings.refreshInterval}m, Elapsed: ${elapsedMinutes.toFixed(1)}m)`,
-        );
-        window.location.reload();
-      } else {
-        console.log(
-          `[${new Date().toISOString()}] Scheduled refresh postponed due to running task`,
-        );
-      }
-    }
-  }
+const formatTaskResult = result => {
+  if (result?.running) return "服务器执行中";
+  if (result?.success === false) return "失败：" + (result.error || "请查看日志");
+  if (!result) return "暂无结果";
+  const failures = result.summary?.results?.filter(item => item.status === "error").length || 0;
+  return failures ? "已结束，" + failures + " 项任务异常" : "已结束";
 };
-
-// Start the scheduler
-const startScheduler = () => {
-  // Clear any existing interval first
-  if (intervalId.value) {
-    clearInterval(intervalId.value);
-  }
-
-  // Check every 10 seconds instead of 60 seconds for more timely task execution
-  intervalId.value = setInterval(async () => {
-    try {
-      const now = new Date();
-      const currentTime = now.toLocaleTimeString("zh-CN", {
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-
-      // Don't skip all tasks if isRunning is true, just skip individual task execution if already running
-      const tasksToRun = scheduledTasks.value.filter((task) => task.enabled);
-
-      if (tasksToRun.length === 0) {
-        return;
-      }
-
-      for (const task of tasksToRun) {
-        let shouldRun = false;
-        let reason = "";
-
-        if (task.runType === "daily") {
-          // Check if current time matches the scheduled time
-          const taskTime = task.runTime;
-          const nowTime = now.toLocaleTimeString("zh-CN", {
-            hour12: false,
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-          shouldRun = nowTime === taskTime;
-          reason = `currentTime=${nowTime}, taskTime=${taskTime}, match=${shouldRun}`;
-        } else if (task.runType === "cron") {
-          // Improved cron expression parsing using shared utility
-          try {
-            shouldRun = matchesCronExpression(task.cronExpression, now);
-          } catch (error) {
-            console.error(
-              `[${new Date().toISOString()}] Error parsing cron expression ${task.cronExpression}:`,
-              error,
-            );
-            addLog({
-              time: currentTime,
-              message: `=== 解析定时任务 ${task.name} 的Cron表达式失败: ${error.message} ===`,
-              type: "error",
-            });
-            return;
-          }
-        }
-
-        if (shouldRun) {
-          // Check if the task was already executed in the last minute to avoid duplicate execution
-          const taskExecutionKey = `${task.id}_${now.getDate()}_${now.getHours()}_${now.getMinutes()}`;
-          const lastExecutionKey = await settingsApi.get(
-            `lastTaskExecution_${task.id}`,
-          );
-
-          if (lastExecutionKey !== taskExecutionKey) {
-            // Update last execution time
-            settingsApi.set(
-              `lastTaskExecution_${task.id}`,
-              taskExecutionKey,
-            );
-
-            // Execute the task
-            lastTaskExecution = Date.now();
-            executeScheduledTask(task);
-          } else {
-            // Only log once per minute to avoid spamming logs
-            // But since we check every 10s, this might log multiple times if we don't track logged state
-            // For now, we can skip logging "already executed" to keep logs clean
-          }
-        }
-      }
-    } catch (error) {
-      console.error(
-        `[${new Date().toISOString()}] Error in task scheduler:`,
-        error,
-      );
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `=== 定时任务调度服务发生错误: ${error.message} ===`,
-        type: "error",
-      });
-    }
-  }, 10000); // Check every 10 seconds
-};
+watch(showTasksModal, visible => { if (visible) loadScheduledTasks(); });
 
 // Token刷新等待处理函数
 const handleTokenRefreshWaiting = (data) => {
@@ -4142,7 +4457,10 @@ onMounted(() => {
   scheduleTaskExecution();
   // Start countdown timer
   startCountdown();
-  loadTaskTemplates();
+  loadTaskTemplates().catch(error => message.error("读取模板失败：" + error.message));
+  taskStatusInterval = setInterval(() => {
+    if (showTasksModal.value) loadScheduledTasks();
+  }, 5000);
   // 监听Token刷新等待事件
   $emit.on("token:refresh:waiting", handleTokenRefreshWaiting);
 });
@@ -4157,16 +4475,7 @@ onBeforeUnmount(() => {
   // 移除Token刷新等待事件监听
   $emit.off("token:refresh:waiting", handleTokenRefreshWaiting);
 
-  // Cleanup task scheduler intervals
-  if (intervalId.value) {
-    clearInterval(intervalId.value);
-    intervalId.value = null;
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: "=== 定时任务调度服务已停止 ===",
-      type: "info",
-    });
-  }
+  if (taskStatusInterval) clearInterval(taskStatusInterval);
 
   if (healthCheckInterval) {
     clearInterval(healthCheckInterval);
@@ -4175,253 +4484,7 @@ onBeforeUnmount(() => {
 });
 
 // Task scheduler - ensure it runs properly
-const scheduleTaskExecution = async () => {
-  // Log the start of the scheduler
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: "=== 定时任务调度服务已启动 ===",
-    type: "info",
-  });
-
-  // Start the scheduler
-  startScheduler();
-
-  // Health check every 5 minutes instead of 1 hour for more frequent safety checks
-  if (healthCheckInterval) {
-    clearInterval(healthCheckInterval);
-  }
-  healthCheckInterval = setInterval(healthCheck, 5 * 60 * 1000);
-
-  // Initial health check
-  healthCheck();
-};
-
-// Verify task dependencies - 只验证基础依赖，WebSocket连接由具体任务函数处理
-const verifyTaskDependencies = async (task) => {
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `=== 开始验证定时任务 ${task.name} 的依赖 ===`,
-    type: "info",
-  });
-
-  // Verify server API is available
-  try {
-    await settingsApi.set("test", "test");
-    await settingsApi.del("test");
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: "✅ 后端存储API可用",
-      type: "info",
-    });
-  } catch (error) {
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `❌ 后端存储API不可用: ${error.message}`,
-      type: "error",
-    });
-    return false;
-  }
-
-  // Verify token store is available
-  if (!tokenStore || !tokenStore.gameTokens) {
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: "❌ Token存储不可用",
-      type: "error",
-    });
-    return false;
-  }
-
-  // Verify task functions exist
-  for (const taskName of task.selectedTasks) {
-    const taskFunction = eval(taskName);
-    if (typeof taskFunction !== "function") {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `❌ 任务函数不存在: ${taskName}`,
-        type: "error",
-      });
-      return false;
-    }
-  }
-
-  // 直接使用所有选中的token，WebSocket连接由具体任务函数内部管理
-  // ensureConnection函数会自动处理并行连接和连接池管理
-  const connectedTokens = task.selectedTokens.map((tokenId) => {
-    const tokenName =
-      tokenStore.gameTokens.find((t) => t.id === tokenId)?.name || tokenId;
-    return { id: tokenId, name: tokenName };
-  });
-
-  // Log connection status
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `✅ 将使用 ${connectedTokens.length} 个账号执行任务`,
-    type: "info",
-  });
-
-  // Store connected tokens for execution
-  task.connectedTokens = connectedTokens.map((t) => t.id);
-
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `=== 定时任务 ${task.name} 的依赖验证通过，将执行 ${connectedTokens.length} 个账号 ===`,
-    type: "success",
-  });
-  return true;
-};
-
-// Execute a scheduled task with dependency verification
-const executeScheduledTask = async (task) => {
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `=== 开始执行定时任务: ${task.name} ===`,
-    type: "info",
-  });
-
-  try {
-    // Verify dependencies before executing task
-    const dependenciesValid = await verifyTaskDependencies(task);
-    if (!dependenciesValid) {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `=== 定时任务 ${task.name} 依赖验证失败，取消执行 ===`,
-        type: "error",
-      });
-      return;
-    }
-
-    // Filter out tokens that don't exist in current tokens.value
-    const availableTokens = (
-      task.connectedTokens || task.selectedTokens
-    ).filter((tokenId) => {
-      return tokens.value.some((t) => t.id === tokenId);
-    });
-
-    const missingTokens = (task.connectedTokens || task.selectedTokens).filter(
-      (tokenId) => {
-        return !tokens.value.some((t) => t.id === tokenId);
-      },
-    );
-
-    if (missingTokens.length > 0) {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `⚠️  跳过不存在的Token: ${missingTokens.join(", ")}`,
-        type: "warning",
-      });
-    }
-
-    if (availableTokens.length === 0) {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `=== 定时任务 ${task.name} 没有可用的Token，取消执行 ===`,
-        type: "error",
-      });
-      return;
-    }
-
-    // Always use the latest selectedTokens from the task that exist in current tokens.value
-    selectedTokens.value = [...availableTokens];
-
-    // Execute selected tasks in parallel
-    const taskPromises = task.selectedTasks.map(async (taskName) => {
-      if (shouldStop.value) return;
-
-      if (
-        ["batchmengjing", "batchBuyDreamItems"].includes(taskName) &&
-        !ismengjingActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在梦境开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      if (
-        ["batchTopUpArena", "batcharenafight"].includes(taskName) &&
-        !isarenaActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在竞技场开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      if (
-        [
-          "climbWeirdTower",
-          "batchUseItems",
-          "batchMergeItems",
-          "batchClaimFreeEnergy",
-        ].includes(taskName) &&
-        !isWeirdTowerActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在怪异塔开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `执行任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName}`,
-        type: "info",
-      });
-
-      // Call the task function dynamically
-      const taskFunction = eval(taskName);
-      if (typeof taskFunction === "function") {
-        // For batch operations, pass isScheduledTask = true
-        // 具体的batch任务函数内部会使用ensureConnection管理并行连接
-        if (
-          [
-            "batchOpenBox",
-            "batchOpenBoxByPoints",
-            "batchFish",
-            "batchRecruit",
-            "batchLegacyGiftSendEnhanced",
-          ].includes(taskName)
-        ) {
-          await taskFunction(true);
-        } else {
-          await taskFunction();
-        }
-      } else {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `任务函数不存在: ${taskName}`,
-          type: "error",
-        });
-      }
-    });
-
-    // Wait for all tasks to complete
-    await Promise.all(taskPromises);
-
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `=== 定时任务执行完成: ${task.name} ===`,
-      type: "success",
-    });
-  } catch (error) {
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `=== 定时任务执行失败: ${error.message} ===`,
-      type: "error",
-    });
-    console.error(
-      `[${new Date().toISOString()}] Error executing scheduled task ${task.name}:`,
-      error,
-    );
-  }
-};
+const scheduleTaskExecution = ()=>{addLog({time:new Date().toLocaleTimeString(),message:"定时任务由服务器后台执行，关闭网页仍会按时运行",type:"info"});if(healthCheckInterval)clearInterval(healthCheckInterval);healthCheckInterval=setInterval(healthCheck,5*60*1000);};
 
 // 注: boxTypeOptions, fishTypeOptions 已从 @/utils/batch 导入
 
@@ -4433,17 +4496,6 @@ const openHelperModal = (type) => {
 // 批量功法残卷赠送相关方法
 const clearRecipientError = () => {
   recipientIdError.value = "";
-};
-
-const validateRecipientId = (value) => {
-  if (!value || value === "") {
-    return true; // 允许为空，由按钮禁用控制
-  }
-  if (!Number.isInteger(Number(value)) || Number(value) <= 0) {
-    recipientIdError.value = "请输入有效的数字ID";
-    return false;
-  }
-  return true;
 };
 
 // 头像处理方法
@@ -4676,9 +4728,82 @@ const executeHelper = () => {
   }
 };
 
+const openRedeemCodeModal = async () => {
+  await loadBatchSettings();
+  batchSettings.cdkCodes = batchSettings.cdkCodes || "";
+  batchSettings.cdkPlatformType = batchSettings.cdkPlatformType || "h5";
+  showRedeemCodeModal.value = true;
+};
+
+const saveRedeemCodeConfig = async () => {
+  batchSettings.cdkCodes = batchSettings.cdkCodes || "";
+  batchSettings.cdkPlatformType = batchSettings.cdkPlatformType || "h5";
+  return saveBatchSettings();
+};
+
+const executeRedeemCodes = async () => {
+  if (!batchSettings.cdkCodes?.trim()) {
+    message.error("请先填写兑换码");
+    return;
+  }
+
+  if (!(await saveRedeemCodeConfig())) return;
+  showRedeemCodeModal.value = false;
+  await batchRedeemCodes();
+};
+
 // Dream Buy Modal Logic
 const showDreamBuyModal = ref(false);
 const dreamBuyList = ref([]);
+
+// Black Market Purchase Modal Logic
+const showBlackMarketPurchaseModal = ref(false);
+const blackMarketPurchaseList = ref(createDefaultBlackMarketPurchaseList());
+
+const openBlackMarketPurchaseModal = () => {
+  blackMarketPurchaseList.value = normalizeBlackMarketPurchaseList(
+    batchSettings.blackMarketPurchaseList?.length
+      ? batchSettings.blackMarketPurchaseList
+      : createDefaultBlackMarketPurchaseList(),
+  ).map((item) => ({ ...item }));
+
+  showBlackMarketPurchaseModal.value = true;
+};
+
+const addBlackMarketPurchaseItem = () => {
+  blackMarketPurchaseList.value.push(createBlackMarketPurchaseEntry());
+};
+
+const applyBlackMarketCatalogItem = (index, itemId) => {
+  blackMarketPurchaseList.value[index] = {
+    ...blackMarketPurchaseList.value[index],
+    ...createBlackMarketPurchaseEntry(itemId),
+  };
+};
+
+const removeBlackMarketPurchaseItem = (index) => {
+  blackMarketPurchaseList.value.splice(index, 1);
+};
+
+const resetBlackMarketPurchaseList = () => {
+  blackMarketPurchaseList.value = createDefaultBlackMarketPurchaseList();
+};
+
+const saveBlackMarketPurchaseConfig = async () => {
+  const normalized = normalizeBlackMarketPurchaseList(
+    blackMarketPurchaseList.value,
+  );
+
+  if (normalized.length === 0) {
+    message.error("请至少配置一项黑市采购条目");
+    return;
+  }
+
+  batchSettings.blackMarketPurchaseList = normalized;
+  if (!(await saveBatchSettings())) return;
+
+  showBlackMarketPurchaseModal.value = false;
+};
 
 const openDreamBuyModal = () => {
   // Load saved settings
@@ -4696,13 +4821,12 @@ const toggleDreamItem = (itemKey, checked) => {
   }
 };
 
-const saveDreamBuyConfig = () => {
+const saveDreamBuyConfig = async () => {
   // Save settings
   batchSettings.dreamPurchaseList = [...dreamBuyList.value];
-  saveBatchSettings();
+  if (!(await saveBatchSettings())) return;
 
   showDreamBuyModal.value = false;
-  message.success("梦境购买配置已保存");
 };
 
 const selectGoldItems = () => {
@@ -4765,43 +4889,21 @@ const openSettings = async (token) => {
   currentSettingsTokenId.value = token.id;
   currentSettingsTokenName.value = token.name;
   const saved = await loadSettings(token.id);
+  if (!saved) { message.error('读取账号设置失败'); return; }
   Object.assign(currentSettings, saved);
   showSettingsModal.value = true;
 };
 
-const saveSettings = () => {
-  if (currentSettingsTokenId.value) {
-    settingsApi.set(
-      `daily-settings:${currentSettingsTokenId.value}`,
-      currentSettings,
-    );
-    message.success(`已保存 ${currentSettingsTokenName.value} 的设置`);
+const saveSettings = async () => {
+  if (!currentSettingsTokenId.value) return;
+  try {
+    await settingsApi.set('daily-settings:' + currentSettingsTokenId.value, { ...currentSettings });
+    message.success('已保存 ' + currentSettingsTokenName.value + ' 的设置');
     showSettingsModal.value = false;
-  }
+  } catch (error) { message.error('保存账号设置失败：' + error.message); }
 };
 
 // Task Template Functions
-const openTaskTemplateModal = async () => {
-  // 加载模板列表
-  await loadTaskTemplates();
-  // 重置当前模板
-  Object.assign(currentTemplate, {
-    arenaFormation: 1,
-    towerFormation: 1,
-    bossFormation: 1,
-    bossTimes: 2,
-    claimBottle: true,
-    payRecruit: true,
-    openBox: true,
-    arenaEnable: true,
-    claimHangUp: true,
-    claimEmail: true,
-    blackMarketPurchase: true,
-    blackMarketPurchaseList: [],
-  });
-  currentTemplateName.value = "";
-  showTaskTemplateModal.value = true;
-};
 
 const loadTaskTemplates = async () => {
   const templates = await settingsApi.get("task-templates");
@@ -4810,9 +4912,9 @@ const loadTaskTemplates = async () => {
   return parsed;
 };
 
-const openApplyTemplateModal = async () => {
+const openApplyTemplateModal = () => {
   // 加载模板列表
-  await loadTaskTemplates();
+  loadTaskTemplates();
   // 重置选择
   selectedTemplateId.value = null;
   selectedTokensForApply.value = [];
@@ -4828,42 +4930,26 @@ const handleSelectAllForApply = (checked) => {
 };
 
 const applyTemplate = async () => {
-  if (!selectedTemplateId.value || selectedTokensForApply.value.length === 0) {
-    message.error("请选择模板和要应用的账号");
-    return;
+  if (!selectedTemplateId.value || !selectedTokensForApply.value.length) {
+    message.error('请选择模板和要应用的账号'); return;
   }
-
-  // 找到选中的模板
-  const templates = await loadTaskTemplates();
-  const template = templates.find((t) => t.id === selectedTemplateId.value);
-  if (!template) {
-    message.error("模板不存在");
-    return;
-  }
-
-  // 应用模板到选中的账号
   let successCount = 0;
-  selectedTokensForApply.value.forEach((tokenId) => {
-    // 保存账号设置时同时保存模板ID
-    const accountSettings = {
-      ...template.settings,
-      templateId: template.id, // 记录模板ID
-    };
-    settingsApi.set(
-      `daily-settings:${tokenId}`,
-      accountSettings,
-    );
-    successCount++;
-  });
-
-  message.success(`已成功应用模板到 ${successCount} 个账号`);
-  showApplyTemplateModal.value = false;
+  try {
+    const template = (await loadTaskTemplates()).find(t => t.id === selectedTemplateId.value);
+    if (!template) { message.error('模板不存在'); return; }
+    for (const tokenId of selectedTokensForApply.value) {
+      await settingsApi.set('daily-settings:' + tokenId, { ...template.settings, templateId: template.id });
+      successCount++;
+    }
+    message.success('已成功应用模板到 ' + successCount + ' 个账号');
+    showApplyTemplateModal.value = false;
+  } catch (error) { message.error('已应用 ' + successCount + ' 个账号，其余保存失败：' + error.message); }
 };
 
 // Template Manager Functions
-const openTemplateManagerModal = async () => {
+const openTemplateManagerModal = () => {
   // 加载模板列表
-  await loadTaskTemplates();
+  loadTaskTemplates();
   showTemplateManagerModal.value = true;
 };
 
@@ -4871,11 +4957,12 @@ const openEditTemplateModal = (template) => {
   // 加载模板数据到当前编辑模板
   currentTemplateId.value = template.id;
   currentTemplateName.value = template.name;
-  Object.assign(currentTemplate, { blackMarketPurchaseList: [], ...template.settings });
+  Object.assign(currentTemplate, template.settings);
   showTaskTemplateModal.value = true;
 };
 
 const updateTaskTemplate = async () => {
+  try {
   if (!currentTemplateName.value.trim()) {
     message.error("请输入模板名称");
     return;
@@ -4902,7 +4989,7 @@ const updateTaskTemplate = async () => {
   };
 
   // 保存模板到server
-  settingsApi.set("task-templates", templates);
+  await settingsApi.set("task-templates", templates);
 
   // 更新模板列表
   taskTemplates.value = templates;
@@ -4912,9 +4999,12 @@ const updateTaskTemplate = async () => {
 
   // 重置编辑状态
   resetTemplateForm();
+
+  } catch (error) { message.error("保存模板失败：" + error.message); }
 };
 
 const deleteTaskTemplate = async (templateId) => {
+  try {
   // 确认删除
   if (confirm("确定要删除这个模板吗？")) {
     // 找到并删除模板
@@ -4922,13 +5012,15 @@ const deleteTaskTemplate = async (templateId) => {
     const filteredTemplates = templates.filter((t) => t.id !== templateId);
 
     // 保存模板到server
-    settingsApi.set("task-templates", filteredTemplates);
+    await settingsApi.set("task-templates", filteredTemplates);
 
     // 更新模板列表
     taskTemplates.value = filteredTemplates;
 
     message.success("模板已删除");
   }
+
+  } catch (error) { message.error("保存模板失败：" + error.message); }
 };
 
 const resetTemplateForm = () => {
@@ -4946,12 +5038,14 @@ const resetTemplateForm = () => {
     claimHangUp: true,
     claimEmail: true,
     blackMarketPurchase: true,
+    blackMarketPurchaseList: [],
+    freeGachaEnable: true,
   });
 };
 
-const openAccountTemplateModal = async () => {
+const openAccountTemplateModal = () => {
   // 加载账号模板引用关系
-  await loadAccountTemplateReferences();
+  loadAccountTemplateReferences();
   showAccountTemplateModal.value = true;
 };
 
@@ -5009,6 +5103,7 @@ const openNewTemplateModal = () => {
 
 // 修改saveTaskTemplate函数，支持新增和编辑
 const saveTaskTemplate = async () => {
+  try {
   if (!currentTemplateName.value.trim()) {
     message.error("请输入模板名称");
     return;
@@ -5032,7 +5127,7 @@ const saveTaskTemplate = async () => {
 
     // 添加新模板
     templates.push(template);
-    settingsApi.set("task-templates", templates);
+    await settingsApi.set("task-templates", templates);
 
     // 更新模板列表
     taskTemplates.value = templates;
@@ -5043,6 +5138,8 @@ const saveTaskTemplate = async () => {
     // 重置表单
     resetTemplateForm();
   }
+
+  } catch (error) { message.error("保存模板失败：" + error.message); }
 };
 
 const currentRunningTokenId = ref(null);
@@ -5099,6 +5196,8 @@ const getStatusText = (tokenId) => {
   const status = tokenStatus.value[tokenId];
   if (status === "completed") return "已完成";
   if (status === "failed") return "失败";
+  if (status === "stopped") return "已停止";
+  if (status === "pending") return "待继续";
   if (status === "running") return "执行中";
   return "等待中";
 };
@@ -5110,13 +5209,13 @@ const getStatusText = (tokenId) => {
 /**
  * 创建新分组
  */
-const createNewGroup = () => {
+const createNewGroup = async () => {
   if (!newGroupName.value.trim()) {
     message.warning("请输入分组名称");
     return;
   }
 
-  const newGroup = tokenStore.createTokenGroup(
+  const newGroup = await tokenStore.createTokenGroup(
     newGroupName.value.trim(),
     newGroupColor.value,
   );
@@ -5145,9 +5244,10 @@ const deselectAllNewGroup = () => {
 /**
  * 删除分组
  */
-const deleteGroup = (groupId) => {
+const deleteGroup = async (groupId) => {
+  // eslint-disable-next-line no-alert -- Preserve the existing native notification or confirmation flow.
   if (confirm("确定要删除这个分组吗？分组中的token不会被删除。")) {
-    tokenStore.deleteTokenGroup(groupId);
+    await tokenStore.deleteTokenGroup(groupId);
     message.success("分组已删除");
   }
 };
@@ -5155,7 +5255,7 @@ const deleteGroup = (groupId) => {
 /**
  * 保存编辑的分组
  */
-const saveEditGroup = () => {
+const saveEditGroup = async () => {
   if (!editingGroupId.value) return;
 
   if (!editingGroupName.value.trim()) {
@@ -5163,7 +5263,7 @@ const saveEditGroup = () => {
     return;
   }
 
-  tokenStore.updateTokenGroup(editingGroupId.value, {
+  await tokenStore.updateTokenGroup(editingGroupId.value, {
     name: editingGroupName.value.trim(),
     color: editingGroupColor.value,
   });
@@ -5265,10 +5365,6 @@ const getValidGroupTokenIds = (groupId) => {
 /**
  * 获取分组中的token列表
  */
-const getGroupTokenList = (groupId) => {
-  const tokenIds = tokenStore.getValidGroupTokenIds(groupId);
-  return tokens.value.filter((t) => tokenIds.includes(t.id));
-};
 
 // 注: pickArenaTargetId, FISH_TARGET, ARENA_TARGET, getTodayStartSec, isTodayAvailable, calculateMonthProgress 已从 @/utils/batch 导入
 
@@ -5333,7 +5429,7 @@ const copyLogs = () => {
       message.success("日志已复制到剪贴板");
     })
     .catch((err) => {
-      message.error("复制日志失败: " + err.message);
+      message.error(`复制日志失败: ${err.message}`);
     });
 };
 
@@ -5360,7 +5456,13 @@ const connectionQueue = { active: 0 };
 
 const waitForConnectionSlot = async () => {
   while (connectionQueue.active >= batchSettings.maxActive) {
+    if (shouldStop.value) break;
     await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (shouldStop.value) {
+    const error = new Error("批量任务已停止，取消等待连接槽位");
+    error.interrupted = true;
+    throw error;
   }
   connectionQueue.active++;
 };
@@ -5371,18 +5473,30 @@ const releaseConnectionSlot = () => {
   }
 };
 
-const ensureConnection = async (tokenId, maxRetries = 2) => {
+/**
+ * Establish a connection and report whether this caller owns a queue slot.
+ * @param {string} tokenId Account identity.
+ * @param {number} maxRetries Whether connection retry is allowed.
+ * @param {Function|null} onSlotChange Optional ownership notification.
+ * @returns {Promise<boolean>} True after connection initialization.
+ */
+const ensureConnection = async (
+  tokenId,
+  maxRetries = 2,
+  onSlotChange = null,
+) => {
   const latestToken = tokens.value.find((t) => t.id === tokenId);
   if (!latestToken) {
     throw new Error(`Token not found: ${tokenId}`);
   }
 
-  let status = tokenStore.getWebSocketStatus(tokenId);
+  const status = tokenStore.getWebSocketStatus(tokenId);
   let connected = status === "connected";
 
   if (!connected) {
     // 等待连接槽位，限制并发连接数
     await waitForConnectionSlot();
+    onSlotChange?.(true);
 
     addLog({
       time: new Date().toLocaleTimeString(),
@@ -5425,7 +5539,12 @@ const ensureConnection = async (tokenId, maxRetries = 2) => {
 
     if (!connected) {
       // 连接失败，释放槽位
-      releaseConnectionSlot();
+      try {
+        tokenStore.closeWebSocketConnection(tokenId);
+      } finally {
+        releaseConnectionSlot();
+        onSlotChange?.(false);
+      }
       throw new Error("连接失败 (重试后仍超时)");
     }
   }
@@ -5494,6 +5613,7 @@ const createTaskDeps = () => ({
   // 设置相关
   currentSettings,
   helperSettings,
+  weirdTowerMaxClimb,
   // 功法赠送相关
   recipientIdInput,
   recipientInfo,
@@ -5515,7 +5635,9 @@ const {
   batchAddHangUpTime,
   batchStudy,
   batchclubsign,
+  batchApplyLegion,
   batchWarGuessCheer,
+  queryLegionById,
 } = tasksHangUp;
 
 const tasksBottle = createTasksBottle(createTaskDeps());
@@ -5531,54 +5653,100 @@ const {
   batchMergeItems,
 } = tasksTower;
 
-const tasksItem = createTasksItem(createTaskDeps());
+const tasksItem = { ...createTasksItem(createTaskDeps()), ...createTasksExtraItem(createTaskDeps()) };
 const {
   batchOpenBox,
   batchOpenBoxByPoints,
   batchClaimBoxPointReward,
   batchFish,
   batchRecruit,
+  batchRedeemCodes,
   batchHeroUpgrade,
   batchBookUpgrade,
   batchClaimStarRewards,
   batchClaimPeachTasks,
   batchGenieSweep,
-  batchOpenFragmentPacks,
-  batchClaimBoxWeeklyRewards,
+  batchOpenFragmentPacks, batchClaimBoxWeeklyRewards
 } = tasksItem;
 
 const tasksDungeon = createTasksDungeon(createTaskDeps());
-const { batchmengjing, batchBuyDreamItems } = tasksDungeon;
+const { batchbaoku13, batchbaoku45, batchmengjing, batchBuyDreamItems } =
+  tasksDungeon;
 
 const tasksArena = createTasksArena(createTaskDeps());
 const { batcharenafight, batchTopUpFish, batchTopUpArena } = tasksArena;
 
-const tasksStore = createTasksStore(createTaskDeps());
+const tasksStore = { ...createTasksStore(createTaskDeps()), ...createTasksExtraStore(createTaskDeps()) };
 const {
   legion_storebuygoods,
   legionStoreBuySkinCoins,
+  store_syncpurchaseconfig,
   store_purchase,
   collection_claimfreereward,
-  weeklyFreeGift,
-  mondayFreeGift,
-  gachaFreeDrawWeekly,
-  batchPkRoomAppoint,
-  blackMarketPurchaseList,
-  charge_claimaddup_rewards,
-  claim_recruit_welfare,
-  claim_weird_tower_all,
+  weeklyFreeGift, mondayFreeGift, gachaFreeDrawWeekly, batchPkRoomAppoint, blackMarketPurchaseList: runLegacyBlackMarketPurchaseList, charge_claimaddup_rewards, claim_recruit_welfare, claim_weird_tower_all
 } = tasksStore;
 
 const tasksLegacy = createTasksLegacy(createTaskDeps());
 const { batchLegacyClaim, batchLegacyGiftSendEnhanced } = tasksLegacy;
 
+const tasksFootball = createTasksFootball(createTaskDeps());
+const { batchFootballBet } = tasksFootball;
+
+const tasksApex = createTasksApex(createTaskDeps());
+const { batchApexGuess } = tasksApex;
+
+const tasksCampChallenge = createTasksCampChallenge(createTaskDeps());
+const { batchCampChallenge, batchCampChallengePet, batchCampClaimTasks } =
+  tasksCampChallenge;
+const tasksXuanwuBlessing = createTasksXuanwuBlessing(createTaskDeps());
+const { batchXuanwuBlessing } = tasksXuanwuBlessing;
+
+// 营地挑战模式选择
+const campChallengeMode = ref("pet");
+const campChallengeModeOptions = [
+  { label: "挑战宠物", value: "pet" },
+  { label: "随机挑战人员", value: "random" },
+  { label: "领取任务奖励", value: "claim" },
+];
+const campChallengeModeLabel = computed(() => {
+  return (
+    campChallengeModeOptions.find((o) => o.value === campChallengeMode.value)
+      ?.label || ""
+  );
+});
+const onCampChallengeModeChange = async (val) => {
+  campChallengeMode.value = val;
+  if (val === "pet") {
+    await batchCampChallengePet();
+  } else if (val === "claim") {
+    await batchCampClaimTasks();
+  } else {
+    await batchCampChallenge();
+  }
+};
+
+// 盐杯竞猜 pick 选择
+const footballPick = ref(3);
+const footballPickOptions = [
+  { label: "主胜", value: 1 },
+  { label: "平局", value: 2 },
+  { label: "客胜", value: 3 },
+];
+const footballPickLabel = computed(() => {
+  return (
+    footballPickOptions.find((o) => o.value === footballPick.value)?.label || ""
+  );
+});
+const onFootballPickChange = async (val) => {
+  footballPick.value = val;
+  await batchFootballBet(val);
+};
+
 const startBatch = async () => {
-  if (selectedTokens.value.length === 0) return;
+  if (isRunning.value || selectedTokens.value.length === 0) return;
 
   isRunning.value = true;
   shouldStop.value = false;
-  // 不再重置logs数组，保留之前的日志
-  // logs.value = [];
 
   // Reset status
   selectedTokens.value.forEach((id) => {
@@ -5591,94 +5759,87 @@ const startBatch = async () => {
 
     tokenStatus.value[tokenId] = "running";
 
-    let retryCount = 0;
-    const MAX_RETRIES = 1;
-    let success = false;
-
-    while (retryCount <= MAX_RETRIES && !success) {
-      if (shouldStop.value) break;
-
-      const token = tokens.value.find((t) => t.id === tokenId);
-
-      try {
-        if (retryCount === 0) {
+    const token = tokens.value.find((t) => t.id === tokenId);
+    if (!token) {
+      tokenStatus.value[tokenId] = "failed";
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: "账号已移除，跳过执行",
+        type: "error",
+      });
+      return;
+    }
+    let ownsSlot = false;
+    try {
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `=== 开始执行: ${token.name} ===`,
+        type: "info",
+      });
+      await ensureConnection(tokenId, 2, (owned) => {
+        ownsSlot = owned;
+      });
+      const runner = new DailyTaskRunner(tokenStore, {
+        commandDelay: batchSettings.commandDelay,
+        taskDelay: batchSettings.taskDelay,
+      });
+      const result = await runner.run(tokenId, {
+        shouldStop: () => shouldStop.value,
+        onLog: (log) =>
+          addLog({ ...log, message: `${token.name}: ${log.message}` }),
+        onProgress: (progress) =>
           addLog({
             time: new Date().toLocaleTimeString(),
-            message: `=== 开始执行: ${token.name} ===`,
+            message: `${token.name}: 服务器每日任务完成并领奖 ${progress}%`,
             type: "info",
-          });
-        } else {
-          addLog({
-            time: new Date().toLocaleTimeString(),
-            message: `=== 尝试重试: ${token.name} (第${retryCount}次) ===`,
-            type: "info",
-          });
+          }),
+      });
+      tokenStatus.value[tokenId] = result.incomplete ? "pending" : "completed";
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: result.incomplete
+          ? `=== ${token.name} 本轮结束，${result.incomplete} 个步骤待继续 ===`
+          : `=== ${token.name} 执行完成 ===`,
+        type: result.incomplete ? "warning" : "success",
+      });
+    } catch (error) {
+      tokenStatus.value[tokenId] = error.interrupted ? "stopped" : "failed";
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `${token.name}: ${error.message}`,
+        type: error.interrupted ? "warning" : "error",
+      });
+    } finally {
+      if (ownsSlot) {
+        try {
+          tokenStore.closeWebSocketConnection(tokenId);
+        } finally {
+          releaseConnectionSlot();
         }
-
-        await ensureConnection(tokenId);
-
-        // Create runner with delay settings
-        const runner = new DailyTaskRunner(tokenStore, {
-          commandDelay: batchSettings.commandDelay,
-          taskDelay: batchSettings.taskDelay,
-        });
-
-        // Run tasks
-        await runner.run(tokenId, {
-          onLog: (log) => addLog(log),
-          onProgress: (p) => {
-            // 每个token维护自己的进度
-          },
-        });
-
-        success = true;
-        tokenStatus.value[tokenId] = "completed";
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `=== ${token.name} 执行完成 ===`,
-          type: "success",
-        });
-      } catch (error) {
-        console.error(error);
-        if (retryCount < MAX_RETRIES && !shouldStop.value) {
-          addLog({
-            time: new Date().toLocaleTimeString(),
-            message: `${token.name} 执行出错: ${error.message}，等待3秒后重试...`,
-            type: "warning",
-          });
-          // Wait for potential token refresh in store
-          await new Promise((r) => setTimeout(r, 3000));
-          retryCount++;
-        } else {
-          tokenStatus.value[tokenId] = "failed";
-          addLog({
-            time: new Date().toLocaleTimeString(),
-            message: `${token.name} 执行失败: ${error.message}`,
-            type: "error",
-          });
-        }
-      } finally {
-        // 完成后关闭连接并释放槽位
-        tokenStore.closeWebSocketConnection(tokenId);
-        releaseConnectionSlot();
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `${token.name} 连接已关闭  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
-          type: "info",
-        });
       }
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `${token.name} 连接清理结束  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
+        type: "info",
+      });
     }
   });
 
-  // 等待所有任务完成
-  await Promise.all(taskPromises);
-
-  // 等待所有任务完成后再继续
-  await new Promise((r) => setTimeout(r, 1000));
-
-  isRunning.value = false;
-  currentRunningTokenId.value = null;
-  message.success("批量任务执行结束");
+  try {
+    await Promise.all(taskPromises);
+  } finally {
+    isRunning.value = false;
+    currentRunningTokenId.value = null;
+  }
+  if (shouldStop.value)
+    message.info("批量任务已停止，再次开始将按服务器任务列表补差");
+  else if (
+    selectedTokens.value.some((id) =>
+      ["failed", "pending", "stopped"].includes(tokenStatus.value[id]),
+    )
+  )
+    message.warning("本轮结束，仍有未完成任务，可再次开始继续");
+  else message.success("批量任务执行结束");
 };
 
 const stopBatch = () => {
@@ -5718,8 +5879,7 @@ const stopBatch = () => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  max-height: 70vh;
-  height: auto;
+  height: 700px;
 }
 
 .page-header {
@@ -5727,6 +5887,36 @@ const stopBatch = () => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+  min-width: 0;
+  width: 100%;
+}
+
+.header-title h2 {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.schedule-summary {
+  flex: 1 1 400px;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.schedule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.run-actions {
+  flex-wrap: wrap;
 }
 
 .token-item {
@@ -5907,6 +6097,19 @@ const stopBatch = () => {
   color: #666;
 }
 
+.weird-tower-count-input {
+  width: 86px;
+  flex-shrink: 0;
+}
+
+.weird-tower-count-unit {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  color: #666;
+  font-size: 14px;
+}
+
 /* Responsive Design */
 @media (max-width: 1200px) {
   .right-column {
@@ -6065,54 +6268,6 @@ const stopBatch = () => {
     .avatar-container {
       margin-bottom: 12px;
     }
-  }
-
-  .main-layout {
-    flex-direction: column !important;
-    height: auto !important;
-    min-height: 100vh;
-  }
-
-  .left-panel, .right-panel {
-    width: 100% !important;
-    max-width: 100% !important;
-    height: auto !important;
-    max-height: none !important;
-    min-height: 0 !important;
-  }
-
-  .right-panel {
-    max-height: 50vh !important;
-  }
-
-  .account-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
-  }
-
-  .action-buttons, .batch-actions, .toolbar {
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-  }
-
-  .action-buttons .n-button,
-  .batch-actions .n-button {
-    font-size: 12px !important;
-    padding: 0 8px !important;
-  }
-
-  .task-list-container {
-    max-height: 40vh !important;
-    overflow-y: auto !important;
-  }
-}
-
-@media (max-width: 480px) {
-  .account-grid {
-    grid-template-columns: 1fr 1fr !important;
-  }
-
-  .n-form-item {
-    margin-bottom: 8px !important;
   }
 }
 </style>

@@ -70,6 +70,13 @@ export class GameManager {
     return conn.status;
   }
 
+  getConnectionMetadata(tokenId) {
+    const conn = this.connections.get(tokenId);
+    return { sessionId: conn?.client?.connectionId || null,
+      serverTime: conn?.client?.serverTime || null,
+      status: conn?.status || 'disconnected' };
+  }
+
   getAllStatus(userId) {
     const tokens = this.db.getAllTokens(userId);
     return tokens.map(t => ({
@@ -77,6 +84,7 @@ export class GameManager {
       name: t.name,
       avatar: t.avatar,
       status: this.getConnectionStatus(t.id),
+      connection: this.getConnectionMetadata(t.id),
       gameData: this.gameData.get(t.id) || null,
     }));
   }
@@ -205,7 +213,7 @@ export class GameManager {
     return conn.client.send(cmd, params);
   }
 
-  async sendMessageWithPromise(tokenId, cmd, params = {}, timeout = 5000) {
+  async sendMessageWithPromise(tokenId, cmd, params = {}, timeout = 5000, { retryOnTimeout = true } = {}) {
     const conn = this.connections.get(tokenId);
     if (!conn || conn.status !== 'connected') {
       return Promise.reject(new Error(`未连接: ${tokenId}`));
@@ -231,12 +239,15 @@ export class GameManager {
 
     try {
       const resp = await conn.client.sendWithPromise(cmd, params, timeout);
+      if (!retryOnTimeout && this.connections.get(tokenId) !== conn) {
+        throw new Error('连接会话已变化，请重新读取服务器状态');
+      }
       protoCapture(tokenId, cmd, params, resp);
       return resp;
     } catch (e) {
       protoCapture(tokenId, cmd, params, undefined, e);
       // 超时后尝试断开重连再重试一次
-      if (e.message && e.message.includes('超时')) {
+      if (retryOnTimeout && e.message && e.message.includes('超时')) {
         gameLogger.warn(`命令超时，尝试重连重试: ${cmd} [${tokenId}]`);
         try {
           this.disconnect(tokenId);

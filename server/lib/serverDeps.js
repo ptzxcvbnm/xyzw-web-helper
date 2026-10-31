@@ -4,16 +4,19 @@
  */
 
 export function createServerDeps(gameManager, db, userId, options = {}) {
-  const { pushService, tokenIds = [], maxActive = 3, commandDelay = 500, taskDelay = 1000 } = options;
+  const { pushService, tokenIds = [], maxActive = 3, commandDelay = 500, taskDelay = 1000, taskSettings = {} } = options;
 
   // 从数据库读取所有 token
   const allTokens = db.getAllTokens(userId);
   const selectedIds = tokenIds.length > 0 ? tokenIds : allTokens.map(t => t.id);
+  const ownedIds = new Set(allTokens.map(token => token.id));
+  if (selectedIds.some(id => !ownedIds.has(id))) throw new Error('任务包含不存在或无权访问的账号');
 
   // 日志收集
   const logs = [];
   const addLog = (log) => {
     logs.push(log);
+    if (logs.length > 2000) logs.splice(0, logs.length - 2000);
     if (pushService) {
       try { pushService.log('system', log.type || 'info', log.message); } catch {}
     }
@@ -75,10 +78,11 @@ export function createServerDeps(gameManager, db, userId, options = {}) {
   };
 
   // helperSettings
-  const helperSettings = { value: {} };
+  const helperSettings = { boxType: batchSettings.defaultBoxType, fishType: batchSettings.defaultFishType,
+    count: 100, targetPoints: batchSettings.targetBoxPoints, ...(taskSettings.helperSettings || {}) };
 
   // currentSettings（当前全局设置）
-  const currentSettings = { value: { arenaFormation: 1, bossFormation: 1, bossTimes: 2, arenaEnable: true, bossEnable: true, claimBottle: true, payRecruit: true, openBox: true, claimHangUp: true, claimEmail: true, blackMarketPurchase: true, freeGachaEnable: true } };
+  const currentSettings = { arenaFormation: 1, bossFormation: 1, bossTimes: 2, arenaEnable: true, bossEnable: true, claimBottle: true, payRecruit: true, openBox: true, claimHangUp: true, claimEmail: true, blackMarketPurchase: true, freeGachaEnable: true, blackMarketPurchaseList: [] };
 
   // 功法赠送相关（从 batchSettings 读取）
   const recipientIdInput = { value: savedBatchSettings?.receiverId || '' };
@@ -92,9 +96,11 @@ export function createServerDeps(gameManager, db, userId, options = {}) {
   // tokenStore 适配层 - 包装 gameManager 的方法
   const tokenStore = {
     gameData: gameManager.gameData,
+    gameTokens: allTokens,
+    get wsConnections() { return Object.fromEntries(gameManager.connections || []); },
 
     async sendMessageWithPromise(tokenId, cmd, params = {}, timeout = 8000) {
-      return gameManager.sendMessageWithPromise(tokenId, cmd, params, timeout);
+      return gameManager.sendMessageWithPromise(tokenId, cmd, params, timeout, { retryOnTimeout: false });
     },
 
     sendMessage(tokenId, cmd, params = {}) {
@@ -114,7 +120,7 @@ export function createServerDeps(gameManager, db, userId, options = {}) {
     },
 
     async sendGetRoleInfo(tokenId) {
-      return gameManager.sendGetRoleInfo(tokenId);
+      return gameManager.sendMessageWithPromise(tokenId, 'role_getroleinfo', {}, 15000, { retryOnTimeout: false });
     },
 
     setBattleVersion(tokenId, version) {
@@ -188,10 +194,10 @@ export function createServerDeps(gameManager, db, userId, options = {}) {
       const raw = db.getKV(`daily-settings:${roleId}`, userId);
       if (raw) {
         const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-        return parsed;
+        return { ...currentSettings, ...parsed };
       }
     } catch {}
-    return currentSettings.value;
+    return { ...currentSettings };
   };
 
   return {
@@ -216,6 +222,7 @@ export function createServerDeps(gameManager, db, userId, options = {}) {
     recipientInfo,
     securityPassword,
     giftQuantity,
+    weirdTowerMaxClimb: { value: savedBatchSettings.weirdTowerMaxClimb || 100 },
     logs,
   };
 }

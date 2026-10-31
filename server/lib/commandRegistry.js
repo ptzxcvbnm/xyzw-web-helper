@@ -176,5 +176,8 @@ export function registerDefaultCommands(reg) {
     return { cmd: "fight_startpvp", ack, seq, time: Date.now(), body };
   });
 
+  // Commands used by the migrated batch tasks; bodies are supplied by the task modules.
+  for (const cmd of ["system_claimcdkreward","store_getpurchase","store_setpurchase","club_getinfo","club_gettargetteam","club_attack","club_attackmonster","club_taskclaim","activity_warorderget","activity_warordertaskclaim","activity_warorderrewardclaim","activity_commonbuygoods","activity_getlotteryinfo","activity_lottery","activity_claimsignreward","saltcup26_getbetinfo","saltcup26_placebet","apex_getroleinfo","apex_getguesslist","apex_guess","legion_applyjoin"]) registry.register(cmd);
+
   return registry;
 }
