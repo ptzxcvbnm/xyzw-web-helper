@@ -1,492 +1,478 @@
 import { gameLogger } from './logger.js';
 
-/**
- * 后端推关服务
- *
- * 普通模式（已实测验证）：
- *   1. fight_calcleveltime {} -> { battleTime, currLevel }  battleTime是要等的秒数
- *   2. 等待 battleTime 秒
- *   3. fight_level {} -> { success, nextTime, currLevel }
- *   4. 等待 nextTime 后，为下一关重新计算战斗时间并循环
- *
- * 模拟加速模式：
- *   1. fight_getlevelbattledata 获取服务器签发的当前关卡战斗
- *   2. 在 Node 中用版本锁定的官方战斗核心提前计算结果
- *   3. 预测失败立即重新取局；预测胜利保留同一局并等待正常时长后结算
- *
- * 停止条件：连续失败达到阈值 / 掉线延迟重连失败 / 手动停止
- */
-
 function pick(resp, name) {
   if (!resp || typeof resp !== 'object') return undefined;
   if (resp[name] !== undefined) return resp[name];
-  for (const k of ['body', '_rawData', 'rawData', 'decodedBody', 'data']) {
-    if (resp[k] && resp[k][name] !== undefined) return resp[k][name];
+  for (const key of ['body', '_rawData', 'rawData', 'decodedBody', 'data']) {
+    if (resp[key]?.[name] !== undefined) return resp[key][name];
   }
   if (typeof resp.getData === 'function') {
-    try { const d = resp.getData(); if (d && d[name] !== undefined) return d[name]; } catch {}
+    try { return resp.getData()?.[name]; } catch {}
   }
   return undefined;
 }
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-
+/**
+ * 主线任务始终在服务器运行，页面只提交控制请求并订阅状态。
+ * 普通模式重新 calc 后按服务器时间结算；模拟模式跳过预测失败局，
+ * 预测胜局保留同一局并等待正常时长后结算。
+ */
 export class PushLevelService {
   constructor(gameManager, pushService, battleSimulator = null) {
     this.gm = gameManager;
     this.push = pushService;
     this.battleSimulator = battleSimulator;
-    // tokenId -> 运行状态
     this.runners = new Map();
+    this.logs = [];
+    this.logSequence = 0;
+    this.logPrefix = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+    this.torchBusy = new Set();
+    this.startingConnections = new Set();
   }
 
-  // 是否正在推关
   isRunning(tokenId) {
-    const r = this.runners.get(tokenId);
-    return !!(r && r.running);
+    return !!this.runners.get(tokenId)?.running;
   }
 
-  // 获取状态
   getStatus(tokenId) {
     const r = this.runners.get(tokenId);
     if (!r) return { running: false };
+    const cached = this.gm.gameData?.get(tokenId);
+    if (cached?.roleInfo && r.torchRoleInfo !== cached.roleInfo) {
+      this._applyTorchInfo(r, cached.roleInfo, Date.parse(cached.lastUpdated) || Date.now());
+    }
     return {
       running: r.running,
+      phase: r.phase || null,
       currLevel: r.currLevel,
       bossName: r.bossName || null,
-      passed: r.passed,
+      passed: r.passed || 0,
+      losses: r.losses || 0,
+      predictedLosses: r.predictedLosses || 0,
       failStreak: r.failStreak,
       maxFail: r.maxFail,
+      autoContinue: r.autoContinue !== false,
       reconnectMinutes: r.reconnectMinutes,
       reconnecting: !!r.reconnecting,
       reconnectState: r.reconnectState || null,
       reconnectAt: r.reconnectAt ? new Date(r.reconnectAt).toISOString() : null,
+      waitUntil: r.waitUntil || null,
+      waitDurationMs: r.reconnecting ? r.reconnectMinutes * 60000 : r.waitDurationMs || 0,
       accelerated: !!r.accelerated,
       simulationAttempts: r.simulationAttempts || 0,
+      torch: r.torch || null,
       startedAt: r.startedAt,
       lastMsg: r.lastMsg,
       stopReason: r.stopReason || null,
     };
   }
 
-  getAllStatus() {
+  getAllStatus(tokenIds) {
     const out = {};
-    for (const [tokenId] of this.runners) out[tokenId] = this.getStatus(tokenId);
+    for (const [id] of this.runners) {
+      if (!tokenIds || tokenIds.has(id)) out[id] = this.getStatus(id);
+    }
     return out;
   }
 
-  // 开始推关
-  async start(tokenId, userId, options = {}) {
-    if (this.isRunning(tokenId)) {
-      return { ok: false, msg: '该账号已在推关中' };
-    }
-
-    const maxFail = Math.min(999, Math.max(1, parseInt(options.maxFail) || 20));
-    const reconnectMinutes = Math.min(1440, Math.max(0, parseInt(options.reconnectMinutes) || 0));
-    const accelerated = options.accelerated === true;
-
-    if (accelerated) {
-      if (!this.battleSimulator) return { ok: false, msg: '模拟加速器未配置' };
-      try {
-        await this.battleSimulator.ready();
-      } catch (error) {
-        return { ok: false, msg: '模拟加速器不可用: ' + error.message };
-      }
-    }
-
-    // 确保已连接
-    let status = this.gm.getConnectionStatus(tokenId);
-    if (status !== 'connected') {
-      this._log(tokenId, 'info', '账号未连接，正在连接...');
-      try {
-        await this.gm.connectWithRetry(tokenId, userId || '', 3);
-        await sleep(2000);
-      } catch (e) {
-        return { ok: false, msg: '连接失败: ' + e.message };
-      }
-      status = this.gm.getConnectionStatus(tokenId);
-      if (status !== 'connected') {
-        return { ok: false, msg: '连接失败，状态: ' + status };
-      }
-    }
-
-    const runner = {
-      running: true,
-      tokenId,
-      userId: userId || '',
-      maxFail,
-      reconnectMinutes,
-      reconnecting: false,
-      reconnectState: null,
-      reconnectAt: null,
-      accelerated,
-      simulationAttempts: 0,
-      failStreak: 0,
-      passed: 0,
-      currLevel: null,
-      bossName: null,
-      startedAt: new Date().toISOString(),
-      lastMsg: '已启动',
-      stopReason: null,
-    };
-    this.runners.set(tokenId, runner);
-
-    const disconnectPolicy = reconnectMinutes === 0
-      ? '掉线自动停止'
-      : `掉线后等待${reconnectMinutes}分钟再重连`;
-    const modeLabel = accelerated ? '本地模拟加速' : '服务器计时';
-    this._log(tokenId, 'info', `开始推关（${modeLabel}，连续失败${maxFail}次自动停止，${disconnectPolicy}）`);
-    this._broadcast(tokenId);
-
-    // 异步跑循环，不阻塞接口返回
-    this._loop(tokenId).catch(e => {
-      gameLogger.error(`推关循环异常 [${tokenId}]: ${e.message}`);
-      this._stopInternal(tokenId, '循环异常: ' + e.message);
-    });
-
-    return { ok: true, msg: '已开始推关' };
+  getLogs(tokenIds) {
+    return this.logs.filter(log => !tokenIds || tokenIds.has(log.tokenId));
   }
 
-  // 停止推关（手动）
+  async start(tokenId, userId, options = {}) {
+    if (this.startingConnections.has(tokenId)) return { ok: false, msg: '上一次账号连接尚未结束，请稍后重试' };
+    if (this.isRunning(tokenId)) return { ok: false, msg: '该账号已在推关中' };
+    const r = {
+      running: true, phase: 'starting', tokenId, userId: userId || '',
+      maxFail: Math.min(999999, Math.max(1, parseInt(options.maxFail) || 20)),
+      reconnectMinutes: Math.min(1440, Math.max(0, parseInt(options.reconnectMinutes) || 0)),
+      autoContinue: options.autoContinue !== false,
+      accelerated: options.accelerated === true,
+      reconnecting: false, reconnectState: null, reconnectAt: null,
+      simulationAttempts: 0, predictedLosses: 0, failStreak: 0, losses: 0, passed: 0,
+      currLevel: null, bossName: null, errorStreak: 0,
+      startedAt: new Date().toISOString(), lastMsg: '正在启动', stopReason: null,
+    };
+    // 在第一个 await 之前占用账号，防止连续点击或多个页面启动重复循环。
+    this.runners.set(tokenId, r);
+    this._broadcast(tokenId);
+    try {
+      if (r.accelerated) {
+        if (!this.battleSimulator) throw new Error('模拟加速器未配置');
+        try { await this.battleSimulator.ready(); }
+        catch (error) { throw new Error('模拟加速器不可用: ' + error.message); }
+        if (!this._isCurrentRunner(tokenId, r)) return { ok: false, msg: '启动已取消' };
+      }
+      if (this.gm.getConnectionStatus(tokenId) !== 'connected') {
+        r.lastMsg = '账号未连接，正在连接...';
+        this._log(tokenId, 'info', r.lastMsg);
+        this._broadcast(tokenId);
+        await this._connectForStart(tokenId, r);
+        if (!this._isCurrentRunner(tokenId, r)) return { ok: false, msg: '启动已取消' };
+        if (this.gm.getConnectionStatus(tokenId) !== 'connected') throw new Error('账号连接失败');
+      }
+    } catch (error) {
+      if (this._isCurrentRunner(tokenId, r)) this._stopInternal(tokenId, error.message, r);
+      return { ok: false, msg: error.message };
+    }
+    if (!this._isCurrentRunner(tokenId, r)) return { ok: false, msg: '启动已取消' };
+    const policy = r.reconnectMinutes === 0 ? '掉线自动停止' : `掉线后等待${r.reconnectMinutes}分钟再重连`;
+    r.lastMsg = '已启动';
+    this._log(tokenId, 'info', `开始推关（${r.accelerated ? '模拟加速' : '服务器计时'}，连续失败${r.maxFail}次自动停止，${policy}）`);
+    this._broadcast(tokenId);
+    this._loop(tokenId, r).catch(error => {
+      if (this._isCurrentRunner(tokenId, r)) this._stopInternal(tokenId, '循环异常: ' + error.message, r);
+    });
+    return { ok: true, msg: '已开始后台推关' };
+  }
+
   stop(tokenId) {
     const r = this.runners.get(tokenId);
-    if (!r || !r.running) return { ok: false, msg: '该账号未在推关' };
-    this._stopInternal(tokenId, '手动停止');
+    if (!r?.running) return { ok: false, msg: '该账号未在推关' };
+    this._stopInternal(tokenId, '手动停止', r);
     return { ok: true, msg: '已停止' };
   }
 
   stopAll() {
-    for (const [tokenId, r] of this.runners) {
-      if (r.running) this._stopInternal(tokenId, '全部停止');
-    }
+    for (const [id, r] of this.runners) if (r.running) this._stopInternal(id, '全部停止', r);
   }
 
-  _stopInternal(tokenId, reason) {
-    const r = this.runners.get(tokenId);
-    if (!r) return;
-    r.running = false;
-    r.reconnecting = false;
-    r.reconnectState = null;
-    r.reconnectAt = null;
-    r.stopReason = reason;
-    r.lastMsg = '已停止: ' + reason;
+  _stopInternal(tokenId, reason, r = this.runners.get(tokenId)) {
+    if (!r || this.runners.get(tokenId) !== r) return;
+    Object.assign(r, { running: false, phase: 'stopped', reconnecting: false, reconnectState: null,
+      reconnectAt: null, waitUntil: null, waitDurationMs: 0, stopReason: reason, lastMsg: '已停止: ' + reason });
     this._log(tokenId, 'info', '推关停止: ' + reason);
     this._broadcast(tokenId);
   }
 
-  // 根据启动选项选择旧的服务器计时流程或本地模拟加速流程。
-  async _loop(tokenId) {
-    const r = this.runners.get(tokenId);
-    if (!r) return;
-    if (r.accelerated) return this._acceleratedLoop(tokenId, r);
-    return this._legacyLoop(tokenId, r);
+  _applyLevel(r, level, bossName) {
+    if (level != null && level !== r.currLevel) {
+      r.currLevel = level;
+      r.bossName = null;
+    }
+    if (bossName) r.bossName = bossName;
   }
 
-  // 旧流程：每一关都必须先 calc，再提交 level；nextTime 只是关卡间隔。
-  async _legacyLoop(tokenId, r = this.runners.get(tokenId)) {
+  async _loop(tokenId, r = this.runners.get(tokenId)) {
     if (!r) return;
+    return r.accelerated ? this._acceleratedLoop(tokenId, r) : this._legacyLoop(tokenId, r);
+  }
 
-    while (r.running) {
+  async _legacyLoop(tokenId, r = this.runners.get(tokenId)) {
+    while (this._isCurrentRunner(tokenId, r)) {
       let waitSec;
       try {
-        const calcResp = await this.gm.sendMessageWithPromise(tokenId, 'fight_calcleveltime', {}, 8000);
-        const battleTime = pick(calcResp, 'battleTime');
-        const currLevel = pick(calcResp, 'currLevel');
-        if (currLevel != null) r.currLevel = currLevel;
-
-        if (battleTime == null) {
-          this._stopInternal(tokenId, 'battleTime为空');
+        r.phase = 'calculating';
+        this._broadcast(tokenId);
+        const response = await this.gm.sendMessageWithPromise(tokenId, 'fight_calcleveltime', {}, 8000);
+        if (!this._isCurrentRunner(tokenId, r)) return;
+        this._applyLevel(r, pick(response, 'currLevel'), pick(response, 'bossName'));
+        const battleTime = pick(response, 'battleTime');
+        if (typeof battleTime !== 'number' || !Number.isFinite(battleTime)) {
+          this._stopInternal(tokenId, 'battleTime为空或无效', r);
           return;
         }
-        waitSec = battleTime < 0 ? 30 : battleTime;
-      } catch (e) {
-        this._log(tokenId, 'warn', 'calcleveltime失败: ' + e.message);
-        if (!await this._recoverConnectionOrStop(tokenId)) return;
+        waitSec = Math.min(300, battleTime < 0 ? 30 : battleTime);
+      } catch (error) {
+        if (!await this._handleError(tokenId, r, '计算战斗时间失败', error)) return;
         continue;
       }
-
-      if (waitSec > 300) waitSec = 300; // 安全上限
-
+      r.phase = 'battle';
       r.lastMsg = `第${r.currLevel || '?'}关 战斗中(${waitSec}s)`;
+      const waited = await this._interruptibleWait(tokenId, waitSec * 1000, r);
+      if (waited === 'stopped') return;
+      if (waited === 'reconnected') continue;
+      r.phase = 'settling';
       this._broadcast(tokenId);
-
-      // 等待（可中断）
-      const waitResult = await this._interruptibleWait(tokenId, waitSec * 1000);
-      if (waitResult === 'stopped' || !r.running) return;
-      if (waitResult === 'reconnected') continue;
-
-      // 提交过关
-      let success, nextTime, currLevel;
+      let response;
       try {
-        const levelResp = await this.gm.sendMessageWithPromise(tokenId, 'fight_level', {}, 8000);
-        success = pick(levelResp, 'success');
-        nextTime = pick(levelResp, 'nextTime');
-        currLevel = pick(levelResp, 'currLevel');
-      } catch (e) {
-        this._log(tokenId, 'warn', 'level失败: ' + e.message);
-        if (!await this._recoverConnectionOrStop(tokenId)) return;
+        response = await this.gm.sendMessageWithPromise(tokenId, 'fight_level', {}, 8000);
+      } catch (error) {
+        if (!await this._handleError(tokenId, r, '关卡结算失败', error)) return;
         continue;
       }
-
-      if (!r.running) return;
-      if (currLevel != null) r.currLevel = currLevel;
-
-      if (success === true || success === 1) {
-        r.passed++;
-        r.failStreak = 0;
-        r.lastMsg = `✅ 过关 -> 第${currLevel}关 (累计${r.passed})`;
-        this._log(tokenId, 'info', r.lastMsg);
-      } else {
-        r.failStreak++;
-        r.lastMsg = `❌ 失败 第${r.currLevel}关 (连续${r.failStreak}/${r.maxFail})`;
-        this._log(tokenId, 'info', r.lastMsg);
-        if (r.failStreak >= r.maxFail) {
-          this._stopInternal(tokenId, `连续失败${r.maxFail}次`);
-          return;
-        }
-      }
-      this._broadcast(tokenId);
-
-      // nextTime 是进入下一关前的间隔，结束后必须重新 calc。
-      const nextWaitSec = (typeof nextTime === 'number' && nextTime >= 0) ? nextTime : 2;
-      const nextWaitResult = await this._interruptibleWait(tokenId, Math.min(nextWaitSec, 300) * 1000);
-      if (nextWaitResult === 'stopped' || !r.running) return;
+      if (!this._isCurrentRunner(tokenId, r)) return;
+      if (!this._settle(tokenId, r, response)) return;
+      r.phase = 'interval';
+      const nextTime = pick(response, 'nextTime');
+      const nextSec = typeof nextTime === 'number' && Number.isFinite(nextTime) && nextTime >= 0 ? nextTime : 2;
+      if (await this._interruptibleWait(tokenId, Math.min(nextSec, 300) * 1000, r) === 'stopped') return;
     }
   }
 
-  // 加速流程：服务器取一局，本地提前判负；只有预测胜利才等待正常时长并提交同一局。
   async _acceleratedLoop(tokenId, r = this.runners.get(tokenId)) {
-    if (!r || !this.battleSimulator) return;
-
+    if (!this.battleSimulator) return;
     while (this._isCurrentRunner(tokenId, r)) {
-      let battleData;
-      let issuedAt;
+      let battleData, issuedAt;
       try {
+        r.phase = 'simulating';
+        r.lastMsg = '正在获取并模拟当前关卡战斗';
+        this._broadcast(tokenId);
         issuedAt = Date.now();
         const response = await this.gm.sendMessageWithPromise(tokenId, 'fight_getlevelbattledata', {}, 8000);
         if (!this._isCurrentRunner(tokenId, r)) return;
+        this._applyLevel(r, pick(response, 'currLevel'), pick(response, 'bossName'));
         battleData = pick(response, 'battleData');
-        const currLevel = pick(response, 'currLevel');
-        if (currLevel != null) r.currLevel = currLevel;
         if (!battleData) {
-          this._stopInternal(tokenId, '服务器未返回主线战斗数据');
+          this._stopInternal(tokenId, '服务器未返回主线战斗数据', r);
           return;
         }
       } catch (error) {
-        this._log(tokenId, 'warn', '获取主线战斗数据失败: ' + error.message);
-        if (!await this._recoverConnectionOrStop(tokenId)) return;
-        await this._interruptibleWait(tokenId, 500);
+        if (!await this._handleError(tokenId, r, '获取主线战斗数据失败', error)) return;
         continue;
       }
-
       let simulation;
       try {
-        simulation = await this.battleSimulator.simulate(battleData, {
-          autoAttack: false,
-          autoAttackInterval: 0.16,
-        });
+        simulation = await this.battleSimulator.simulate(battleData, { autoAttack: false, autoAttackInterval: 0.16 });
       } catch (error) {
-        this._stopInternal(tokenId, '本地战斗模拟失败: ' + error.message);
+        if (this._isCurrentRunner(tokenId, r)) this._stopInternal(tokenId, '本地战斗模拟失败: ' + error.message, r);
         return;
       }
       if (!this._isCurrentRunner(tokenId, r)) return;
-
-      r.simulationAttempts++;
-      r.currLevel = simulation.levelId ?? r.currLevel;
-      r.bossName = simulation.bossName || null;
+      // 排队计算期间连接可能已断开；换连接后不能提交旧连接签发的胜局。
+      if (this.gm.getConnectionStatus(tokenId) !== 'connected') {
+        if (!await this._recoverConnectionOrStop(tokenId, r)) return;
+        continue;
+      }
+      r.simulationAttempts = (r.simulationAttempts || 0) + 1;
+      this._applyLevel(r, simulation.levelId, simulation.bossName);
       if (!simulation.result?.isWin) {
+        r.predictedLosses = (r.predictedLosses || 0) + 1;
         r.failStreak++;
-        r.lastMsg = `❌ 预测失败 第${r.currLevel || '?'}关，立即换局 (${r.failStreak}/${r.maxFail})`;
-        this._log(tokenId, 'info', r.lastMsg);
+        r.lastMsg = `预测失败 第${r.currLevel || '?'}关，立即换局 (${r.failStreak}/${r.maxFail})`;
+        this._log(tokenId, 'warn', r.lastMsg);
         this._broadcast(tokenId);
         if (r.failStreak >= r.maxFail) {
-          this._stopInternal(tokenId, `连续预测失败${r.maxFail}次`);
+          this._stopInternal(tokenId, `连续预测失败${r.maxFail}次`, r);
           return;
         }
-        const retryWait = await this._interruptibleWait(tokenId, 300);
-        if (retryWait === 'stopped') return;
+        r.phase = 'interval';
+        if (await this._interruptibleWait(tokenId, 300, r) === 'stopped') return;
         continue;
       }
-
       const elapsedMs = Date.now() - issuedAt;
       const waitMs = Math.max(0, simulation.realDurationMs + simulation.settlementBufferMs - elapsedMs);
-      r.lastMsg = `✅ 预测胜利 第${r.currLevel || '?'}关，保留本局等待${Math.ceil(waitMs / 1000)}秒结算`;
+      r.phase = 'battle';
+      r.lastMsg = `预测胜利 第${r.currLevel || '?'}关，保留本局等待${Math.ceil(waitMs / 1000)}秒结算`;
       this._log(tokenId, 'info', r.lastMsg);
+      const waited = await this._interruptibleWait(tokenId, waitMs, r);
+      if (waited === 'stopped' || !this._isCurrentRunner(tokenId, r)) return;
+      if (waited === 'reconnected') continue;
+      r.phase = 'settling';
       this._broadcast(tokenId);
-      const waitResult = await this._interruptibleWait(tokenId, waitMs);
-      if (waitResult === 'stopped' || !this._isCurrentRunner(tokenId, r)) return;
-      if (waitResult === 'reconnected') continue;
-
-      let success, currLevel;
+      let response;
       try {
-        const levelResp = await this.gm.sendMessageWithPromise(tokenId, 'fight_level', {}, 8000);
-        if (!this._isCurrentRunner(tokenId, r)) return;
-        success = pick(levelResp, 'success');
-        currLevel = pick(levelResp, 'currLevel');
+        response = await this.gm.sendMessageWithPromise(tokenId, 'fight_level', {}, 8000);
       } catch (error) {
-        this._log(tokenId, 'warn', '胜局结算失败: ' + error.message);
-        if (!await this._recoverConnectionOrStop(tokenId)) return;
+        if (!await this._handleError(tokenId, r, '胜局结算失败', error)) return;
         continue;
       }
+      if (!this._isCurrentRunner(tokenId, r)) return;
+      if (!this._settle(tokenId, r, response)) return;
+      // nextTime 已包含下一局战斗时间，不与下一次模拟等待重复。
+      r.phase = 'interval';
+      if (await this._interruptibleWait(tokenId, 300, r) === 'stopped') return;
+    }
+  }
 
-      if (currLevel != null) r.currLevel = currLevel;
-      if (success === true || success === 1) {
-        r.passed++;
-        r.failStreak = 0;
-        r.lastMsg = `✅ 加速过关 -> 第${currLevel}关 (累计${r.passed}，模拟${r.simulationAttempts}局)`;
-        this._log(tokenId, 'info', r.lastMsg);
-      } else {
-        r.failStreak++;
-        r.lastMsg = `❌ 预测胜局未通过 第${r.currLevel || '?'}关 (连续${r.failStreak}/${r.maxFail})`;
-        this._log(tokenId, 'warn', r.lastMsg);
-        if (r.failStreak >= r.maxFail) {
-          this._stopInternal(tokenId, `连续失败${r.maxFail}次`);
-          return;
+  _settle(tokenId, r, response) {
+    this._applyLevel(r, pick(response, 'currLevel'), pick(response, 'bossName'));
+    r.errorStreak = 0;
+    const success = pick(response, 'success');
+    if (success === true || success === 1) {
+      r.passed++;
+      r.failStreak = 0;
+      r.lastMsg = `过关 -> 第${r.currLevel}关 (累计${r.passed})`;
+      this._log(tokenId, 'success', r.lastMsg);
+      if (r.autoContinue === false) {
+        this._stopInternal(tokenId, '单次推关完成', r);
+        return false;
+      }
+    } else {
+      r.losses = (r.losses || 0) + 1;
+      r.failStreak++;
+      r.lastMsg = `结算失败 第${r.currLevel}关 (连续${r.failStreak}/${r.maxFail})`;
+      this._log(tokenId, 'warn', r.lastMsg);
+      if (r.failStreak >= r.maxFail) {
+        this._stopInternal(tokenId, `连续失败${r.maxFail}次`, r);
+        return false;
+      }
+    }
+    this._broadcast(tokenId);
+    return true;
+  }
+
+  _isCurrentRunner(tokenId, r) {
+    return !!r?.running && this.runners.get(tokenId) === r;
+  }
+
+  async _handleError(tokenId, r, label, error) {
+    if (!this._isCurrentRunner(tokenId, r)) return false;
+    r.lastMsg = label + ': ' + error.message;
+    this._log(tokenId, 'error', r.lastMsg);
+    r.errorStreak = (r.errorStreak || 0) + 1;
+    if (r.errorStreak >= 5) {
+      this._stopInternal(tokenId, '连续请求异常5次: ' + error.message, r);
+      return false;
+    }
+    if (!await this._recoverConnectionOrStop(tokenId, r)) return false;
+    return await this._interruptibleWait(tokenId, 1000, r) !== 'stopped';
+  }
+
+  async _interruptibleWait(tokenId, ms, r = this.runners.get(tokenId)) {
+    if (!this._isCurrentRunner(tokenId, r)) return 'stopped';
+    r.waitDurationMs = ms;
+    r.waitUntil = Date.now() + ms;
+    this._broadcast(tokenId);
+    try {
+      while (this._isCurrentRunner(tokenId, r)) {
+        if (this.gm.getConnectionStatus(tokenId) !== 'connected') {
+          return await this._recoverConnectionOrStop(tokenId, r) ? 'reconnected' : 'stopped';
         }
+        const remaining = r.waitUntil - Date.now();
+        if (remaining <= 0) return 'completed';
+        await sleep(Math.min(500, remaining));
       }
-      this._broadcast(tokenId);
-
-      // 加速模式会自行获取并模拟下一关；fight_level 的 nextTime 已包含下一局战斗时间，
-      // 再等待它会和下一次模拟结算等待重复。只留一个很短的状态同步间隔。
-      const nextWaitResult = await this._interruptibleWait(tokenId, 300);
-      if (nextWaitResult === 'stopped' || !this._isCurrentRunner(tokenId, r)) return;
+      return 'stopped';
+    } finally {
+      r.waitUntil = null;
+      r.waitDurationMs = 0;
     }
   }
 
-  _isCurrentRunner(tokenId, runner) {
-    return !!runner?.running && this.runners.get(tokenId) === runner;
-  }
-
-  // 可中断的等待（每500ms检查停止状态和连接状态）
-  async _interruptibleWait(tokenId, ms) {
-    const r = this.runners.get(tokenId);
-    let waited = 0;
-    while (waited < ms) {
-      if (!r || !r.running) return 'stopped';
-      if (this.gm.getConnectionStatus(tokenId) !== 'connected') {
-        const recovered = await this._recoverConnectionOrStop(tokenId);
-        return recovered ? 'reconnected' : 'stopped';
-      }
-      const step = Math.min(500, ms - waited);
-      await sleep(step);
-      waited += step;
-    }
-    return 'completed';
-  }
-
-  async _recoverConnectionOrStop(tokenId) {
-    const r = this.runners.get(tokenId);
-    if (!r || !r.running) return false;
-    if (await this._ensureConnected(tokenId)) return true;
-    if (!r.running) return false;
-
-    const reason = r.reconnectMinutes === 0
-      ? '账号掉线，已按设置自动停止'
-      : `掉线后等待${r.reconnectMinutes}分钟，重连失败`;
-    this._stopInternal(tokenId, reason);
+  async _recoverConnectionOrStop(tokenId, r = this.runners.get(tokenId)) {
+    if (!this._isCurrentRunner(tokenId, r)) return false;
+    if (await this._ensureConnected(tokenId, r)) return this._isCurrentRunner(tokenId, r);
+    if (!this._isCurrentRunner(tokenId, r)) return false;
+    this._stopInternal(tokenId, r.reconnectMinutes === 0
+      ? '账号掉线，已按设置自动停止' : `掉线后等待${r.reconnectMinutes}分钟，重连失败`, r);
     return false;
   }
 
-  // 确保连接：0分钟立即停止；大于0时先倒计时等待，结束后只尝试重连一次。
-  async _ensureConnected(tokenId) {
+  async _ensureConnected(tokenId, r = this.runners.get(tokenId)) {
+    if (!this._isCurrentRunner(tokenId, r)) return false;
     if (this.gm.getConnectionStatus(tokenId) === 'connected') return true;
-    const r = this.runners.get(tokenId);
-    if (!r || !r.running) return false;
-
-    if (r.reconnectMinutes === 0) {
-      this._log(tokenId, 'warn', '检测到掉线，重连时间为0分钟，自动停止');
-      return false;
-    }
-
-    r.reconnectAt = Date.now() + r.reconnectMinutes * 60 * 1000;
+    if (r.reconnectMinutes === 0) return false;
+    r.reconnectAt = Date.now() + r.reconnectMinutes * 60000;
     r.reconnecting = true;
     r.reconnectState = 'waiting';
     this._log(tokenId, 'warn', `检测到掉线，等待${r.reconnectMinutes}分钟后尝试重连`);
-
-    while (r.running && Date.now() < r.reconnectAt) {
-      if (this.gm.getConnectionStatus(tokenId) === 'connected') {
-        r.reconnecting = false;
-        r.reconnectState = null;
-        r.reconnectAt = null;
-        r.lastMsg = '连接已恢复，继续推关';
-        this._log(tokenId, 'info', '等待期间连接已恢复，继续推关');
-        this._broadcast(tokenId);
-        return true;
-      }
-
-      const remainingSeconds = Math.max(0, Math.ceil((r.reconnectAt - Date.now()) / 1000));
-      const minutes = Math.floor(remainingSeconds / 60);
-      const seconds = String(remainingSeconds % 60).padStart(2, '0');
-      r.lastMsg = `掉线，等待重连（剩余${minutes}:${seconds}）`;
+    while (this._isCurrentRunner(tokenId, r) && Date.now() < r.reconnectAt) {
+      if (this.gm.getConnectionStatus(tokenId) === 'connected') return this._connectionRecovered(tokenId, r);
+      const remaining = Math.max(0, Math.ceil((r.reconnectAt - Date.now()) / 1000));
+      r.lastMsg = `掉线，等待重连（剩余${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}）`;
       this._broadcast(tokenId);
       await sleep(Math.min(1000, Math.max(0, r.reconnectAt - Date.now())));
     }
-
-    if (!r.running) return false;
-    if (this.gm.getConnectionStatus(tokenId) === 'connected') {
-      r.reconnecting = false;
-      r.reconnectState = null;
-      r.reconnectAt = null;
-      r.lastMsg = '连接已恢复，继续推关';
-      this._log(tokenId, 'info', '等待结束前连接已恢复，继续推关');
-      this._broadcast(tokenId);
-      return true;
-    }
-
+    if (!this._isCurrentRunner(tokenId, r)) return false;
+    if (this.gm.getConnectionStatus(tokenId) === 'connected') return this._connectionRecovered(tokenId, r);
     r.reconnectState = 'connecting';
     r.lastMsg = '等待结束，正在尝试重连...';
-    this._log(tokenId, 'info', `已等待${r.reconnectMinutes}分钟，开始尝试重连`);
+    this._log(tokenId, 'info', r.lastMsg);
     this._broadcast(tokenId);
-
     const connected = await this._attemptReconnect(tokenId, r);
-    if (connected && r.running && this.gm.getConnectionStatus(tokenId) === 'connected') {
-      r.reconnecting = false;
-      r.reconnectState = null;
-      r.reconnectAt = null;
-      r.lastMsg = '重连成功，恢复推关';
-      this._log(tokenId, 'info', '掉线重连成功，恢复推关');
-      this._broadcast(tokenId);
-      return true;
-    }
-
-    r.reconnecting = false;
-    r.reconnectState = null;
-    r.reconnectAt = null;
+    if (!this._isCurrentRunner(tokenId, r)) return false;
+    if (connected && this.gm.getConnectionStatus(tokenId) === 'connected') return this._connectionRecovered(tokenId, r);
+    Object.assign(r, { reconnecting: false, reconnectState: null, reconnectAt: null });
     this._broadcast(tokenId);
     return false;
   }
 
-  async _attemptReconnect(tokenId, r) {
+  _connectionRecovered(tokenId, r) {
+    Object.assign(r, { reconnecting: false, reconnectState: null, reconnectAt: null, lastMsg: '连接已恢复，继续推关' });
+    this._log(tokenId, 'info', r.lastMsg);
+    this._broadcast(tokenId);
+    return true;
+  }
+
+  async _connectForStart(tokenId, r) {
+    this.startingConnections.add(tokenId);
     try {
-      this.gm.disconnect(tokenId);
-      await sleep(500);
-      if (!r.running) return false;
-
-      await this.gm.connect(tokenId, r.userId || '');
-      const attemptDeadline = Date.now() + 10000;
-      while (r.running && Date.now() < attemptDeadline) {
-        if (this.gm.getConnectionStatus(tokenId) === 'connected') return true;
-        await sleep(Math.min(500, attemptDeadline - Date.now()));
-      }
-
-      if (r.running && this.gm.getConnectionStatus(tokenId) !== 'connected') {
-        this.gm.disconnect(tokenId);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (!this._isCurrentRunner(tokenId, r)) return false;
+        if (await this._attemptReconnect(tokenId, r, 30000)) return true;
+        if (!this._isCurrentRunner(tokenId, r)) return false;
+        if (attempt < 2) {
+          const deadline = Date.now() + 2000 * (attempt + 1);
+          while (this._isCurrentRunner(tokenId, r) && Date.now() < deadline) {
+            await sleep(Math.min(500, deadline - Date.now()));
+          }
+        }
       }
       return false;
-    } catch (e) {
-      this._log(tokenId, 'warn', '重连尝试异常: ' + e.message);
-      return false;
+    } finally {
+      this.startingConnections.delete(tokenId);
     }
   }
 
-  _log(tokenId, level, msg) {
-    gameLogger.info(`[推关][${tokenId}] ${msg}`);
-    try { this.push.log(tokenId, level, '[推关] ' + msg); } catch {}
+  async _attemptReconnect(tokenId, r, timeoutMs = 10000) {
+    try {
+      if (!this._isCurrentRunner(tokenId, r)) return false;
+      this.gm.disconnect(tokenId);
+      await sleep(500);
+      if (!this._isCurrentRunner(tokenId, r)) return false;
+      await this.gm.connect(tokenId, r.userId || '');
+      const deadline = Date.now() + timeoutMs;
+      while (this._isCurrentRunner(tokenId, r) && Date.now() < deadline) {
+        if (this.gm.getConnectionStatus(tokenId) === 'connected') return true;
+        await sleep(Math.min(500, deadline - Date.now()));
+      }
+      if (this._isCurrentRunner(tokenId, r) && this.gm.getConnectionStatus(tokenId) !== 'connected') this.gm.disconnect(tokenId);
+    } catch (error) {
+      if (this._isCurrentRunner(tokenId, r)) this._log(tokenId, 'warn', '重连尝试异常: ' + error.message);
+    }
+    return false;
+  }
+
+  _applyTorchInfo(r, info, observedAt = Date.now()) {
+    r.torchRoleInfo = info;
+    const role = pick(info, 'role') || info?.body || info;
+    if (role?.autoClickType == null) return;
+    const type = Number(role.autoClickType) || 0;
+    const remaining = Math.max(0, Number(role.autoClickTime) || 0);
+    const settle = Number(role.autoClickSettleTime) || 0;
+    const settleMs = settle < 1e12 ? settle * 1000 : settle;
+    r.torch = { type, expiresAt: settleMs > observedAt ? settleMs : observedAt + remaining * 1000 };
+  }
+
+  async useTorch(tokenId, itemId, quantity) {
+    if (![1008, 1009, 1010].includes(itemId) || !Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
+      return { ok: false, msg: '火把类型或数量无效' };
+    }
+    const r = this.runners.get(tokenId);
+    if (!this._isCurrentRunner(tokenId, r)) return { ok: false, msg: '请先启动该账号推关' };
+    if (this.gm.getConnectionStatus(tokenId) !== 'connected') return { ok: false, msg: '账号未连接，未使用火把' };
+    if (this.torchBusy.has(tokenId)) return { ok: false, msg: '正在使用火把，请勿重复提交' };
+    this.torchBusy.add(tokenId);
+    try {
+      await this.gm.sendMessageWithPromise(tokenId, 'item_consume', { itemId, quantity }, 10000);
+      this._log(tokenId, 'success', `使用火把 ${itemId} × ${quantity} 成功`);
+      try {
+        const info = await this.gm.sendMessageWithPromise(tokenId, 'role_getroleinfo', {}, 10000);
+        if (this.runners.get(tokenId) === r) this._applyTorchInfo(r, info);
+      } catch (error) {
+        this._log(tokenId, 'warn', '火把已使用，状态刷新失败: ' + error.message);
+      }
+      this._broadcast(tokenId);
+      return { ok: true, msg: '火把已使用' };
+    } catch (error) {
+      this._log(tokenId, 'error', '使用火把失败: ' + error.message);
+      return { ok: false, msg: error.message };
+    } finally {
+      this.torchBusy.delete(tokenId);
+    }
+  }
+
+  _log(tokenId, level, message) {
+    const entry = { id: this.logPrefix + '-' + (++this.logSequence), tokenId, level, message, ts: Date.now() };
+    this.logs.push(entry);
+    if (this.logs.length > 2000) this.logs.splice(0, this.logs.length - 2000);
+    gameLogger.info(`[推关][${tokenId}] ${message}`);
+    try { this.push.log(tokenId, level, '[推关] ' + message, { source: 'pushLevel', id: entry.id }); } catch {}
   }
 
   _broadcast(tokenId) {
-    try {
-      this.push.broadcast('pushLevel', { tokenId, status: this.getStatus(tokenId) });
-    } catch {}
+    try { this.push.broadcast('pushLevel', { tokenId, status: this.getStatus(tokenId) }); } catch {}
   }
 }

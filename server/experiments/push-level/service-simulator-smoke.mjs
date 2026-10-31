@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { PushLevelBattleSimulator } from '../../lib/pushLevelBattleSimulator.js';
+import { assetLock } from './offline-runtime.mjs';
 
 function revive(value) {
   if (value === null || typeof value !== 'object') return value;
@@ -26,20 +27,20 @@ function emulateBonDecode(value) {
 
 function emulateServerBattlePayload(value) {
   const battle = emulateBonDecode(value);
-  for (const key of ['mode', 'maxRound', 'outputCode', 'result', 'fightTime', 'statistic', 'leftTeams', 'rightTeams']) {
+  // 只省略可由运行时补齐的默认/结算字段。武器、宠物及其技能属于战斗输入，
+  // 删除这些字段会改变阵容，无法再与同一份浏览器样本进行一致性比较。
+  for (const key of ['mode', 'outputCode', 'result', 'fightTime', 'statistic', 'leftTeams', 'rightTeams']) {
     delete battle[key];
-  }
-  for (const team of [battle.leftTeam, battle.rightTeam]) {
-    for (const key of ['legionName', 'lordAttackTime', 'attributeBonus', 'teamInfo', 'options', 'name', 'headImg',
-      'weaponId', 'weaponActiveLevelId', 'lordSkinId', 'avatarFrame', 'customCard', 'legacyColor', 'petId',
-      'petUId', 'petEvo', 'petActiveSkillId']) delete team[key];
   }
   return battle;
 }
 
 const samplePath = process.argv[2];
-if (!samplePath) throw new Error('Usage: node service-simulator-smoke.mjs <sample.json>');
+if (!samplePath) throw new Error('Usage: node service-simulator-smoke.mjs <sample.json> [expected-boss-name]');
 const sample = JSON.parse(await readFile(resolve(samplePath), 'utf8'));
+for (const key of ['battleVersion', 'configCommit', 'engineVersion']) {
+  assert.equal(sample.metadata?.[key], assetLock[key], `Sample ${key} must match the locked assets`);
+}
 const simulator = new PushLevelBattleSimulator();
 const browserShape = revive(sample.battleData);
 await simulator.ready();
@@ -55,8 +56,9 @@ try {
 }
 assert.deepEqual(result.result, sample.browserSimulation.result);
 assert.deepEqual(bonResult.result, sample.browserSimulation.result);
-assert.equal(result.bossName, '关平');
-assert.equal(bonResult.bossName, '关平');
+assert.ok(result.bossName && result.bossName !== '未知', 'BOSS display name must be resolved');
+assert.equal(bonResult.bossName, result.bossName);
+if (process.argv[3]) assert.equal(result.bossName, process.argv[3]);
 assert.ok(eventLoopTicks >= 5, `main event loop was blocked; timer ticked only ${eventLoopTicks} times`);
 console.log(JSON.stringify({
   levelId: result.levelId,

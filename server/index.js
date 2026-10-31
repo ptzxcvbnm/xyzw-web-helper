@@ -58,7 +58,7 @@ app.use('/api/task', authMiddleware, taskRoutes(gameManager));
 app.use('/api/status', authMiddleware, statusRoutes(gameManager));
 app.use('/api/settings', authMiddleware, settingsRoutes(db));
 app.use('/api/scheduled-tasks', authMiddleware, scheduledTaskRoutes(db, gameManager));
-app.use('/api/push-level', authMiddleware, pushLevelRoutes(pushLevelService));
+app.use('/api/push-level', authMiddleware, pushLevelRoutes(pushLevelService, db));
 app.use('/api/salt-field', authMiddleware, saltFieldRoutes(saltFieldService));
 app.use('/api/force-online', authMiddleware, forceOnlineRoutes(forceOnlineService));
 

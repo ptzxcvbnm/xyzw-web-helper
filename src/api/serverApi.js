@@ -99,10 +99,12 @@ export const scheduledTasksApi = {
 };
 
 export const pushLevelApi = {
-  start: (tokenId, maxFail, reconnectMinutes, accelerated = false) => api.post('/push-level/start', { tokenId, maxFail, reconnectMinutes, accelerated }).then(r => r.data),
+  start: (tokenId, maxFail, reconnectMinutes, accelerated = false, autoContinue = true) => api.post('/push-level/start', { tokenId, maxFail, reconnectMinutes, accelerated, autoContinue }, { timeout: 120000 }).then(r => r.data),
   stop: (tokenId) => api.post('/push-level/stop', { tokenId }).then(r => r.data),
   status: (tokenId) => api.get(`/push-level/status/${tokenId}`).then(r => r.data),
   statusAll: () => api.get('/push-level/status').then(r => r.data),
+  logs: () => api.get('/push-level/logs').then(r => r.data),
+  useTorch: (tokenId, itemId, quantity) => api.post('/push-level/torch', { tokenId, itemId, quantity }).then(r => r.data),
 };
 
 export const saltFieldApi = {
