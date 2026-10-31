@@ -11,15 +11,6 @@
           <template #checked>自动继续</template>
           <template #unchecked>过一关停止</template>
         </n-switch>
-        <n-input-number
-          v-model:value="maxRetries"
-          :min="1"
-          :max="999999"
-          :precision="0"
-          size="small"
-          class="retry-input"
-        />
-        <span class="retry-label">连续失败上限</span>
         <n-button size="small" :loading="loadingAll" @click="refreshAll">刷新状态</n-button>
       </div>
     </div>
@@ -100,6 +91,17 @@
         <div class="torch-field">
           <span class="torch-label">掉线重连等待（分钟，0 为停止）</span>
           <n-input-number v-model:value="reconnectMinutes" :min="0" :max="1440" :precision="0" size="small" class="reconnect-input" />
+        </div>
+        <div class="torch-field">
+          <span class="torch-label">连续失败上限</span>
+          <n-input-number
+            v-model:value="maxRetries"
+            :min="1"
+            :max="999999"
+            :precision="0"
+            size="small"
+            class="retry-input"
+          />
         </div>
         <div class="torch-field">
           <span class="torch-label">火把类型</span>
@@ -634,11 +636,6 @@ onUnmounted(() => {
 
 .retry-input {
   width: 110px;
-}
-
-.retry-label {
-  color: var(--text-secondary, #667085);
-  font-size: 13px;
 }
 
 .account-card-top,
